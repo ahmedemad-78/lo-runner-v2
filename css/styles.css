@@ -677,6 +677,84 @@ html.icons-loading .material-symbols-outlined { visibility: hidden; }
 .dash-row--alt td { background: var(--bg); }
 .dash-row--alt:hover td { background: var(--surface); }
 
+/* Same LO path ran 2+ times ? warm amber group */
+.dash-row--retest td {
+    background: rgba(181, 71, 8, 0.08);
+    box-shadow: inset 3px 0 0 #b54708;
+}
+.dash-row--retest.dash-row--alt td {
+    background: rgba(181, 71, 8, 0.12);
+}
+.dash-row--retest:hover td {
+    background: rgba(181, 71, 8, 0.16);
+}
+body.dark .dash-row--retest td {
+    background: rgba(253, 176, 34, 0.10);
+    box-shadow: inset 3px 0 0 #fdb022;
+}
+body.dark .dash-row--retest.dash-row--alt td {
+    background: rgba(253, 176, 34, 0.14);
+}
+body.dark .dash-row--retest:hover td {
+    background: rgba(253, 176, 34, 0.18);
+}
+
+.dash-link-wrap {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+.lo-retest-badge {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    height: 20px;
+    padding: 0 7px;
+    border-radius: 6px;
+    font-family: var(--sans);
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    color: #93370d;
+    background: rgba(181, 71, 8, 0.14);
+    border: 1px solid rgba(181, 71, 8, 0.28);
+}
+body.dark .lo-retest-badge {
+    color: #fef0c7;
+    background: rgba(253, 176, 34, 0.16);
+    border-color: rgba(253, 176, 34, 0.32);
+}
+
+.retest-hint {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: 4px;
+    padding: 4px 10px;
+    border-radius: 8px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #93370d;
+    background: rgba(181, 71, 8, 0.08);
+    border: 1px solid rgba(181, 71, 8, 0.18);
+    white-space: nowrap;
+}
+.retest-hint[hidden] { display: none !important; }
+.retest-swatch {
+    width: 10px;
+    height: 10px;
+    border-radius: 3px;
+    background: #b54708;
+    box-shadow: inset 0 0 0 1px rgba(0,0,0,0.08);
+}
+body.dark .retest-hint {
+    color: #fef0c7;
+    background: rgba(253, 176, 34, 0.12);
+    border-color: rgba(253, 176, 34, 0.28);
+}
+body.dark .retest-swatch { background: #fdb022; }
+
 .dash-time {
     font-family: var(--mono);
     font-size: 0.8125rem;

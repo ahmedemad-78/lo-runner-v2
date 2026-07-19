@@ -14,6 +14,7 @@ let currentEditingId = null;
 let currentFilterUser = "ALL";
 let currentFilterSubject = "ALL";
 let currentFilterStatus = "ALL";
+let currentFilterRetest = "ALL"; // ALL | RETEST | UNIQUE
 let currentSearchText = "";
 
 let isRecording = false;
@@ -1150,8 +1151,40 @@ function updateFilterOptions() {
         subjects.map(s => `<option value="${esc(s)}" ${prev === s ? "selected" : ""}>${esc(s)}</option>`).join("");
 }
 
+function loPathKey(item) {
+    return String(item && item.restOfLink != null ? item.restOfLink : "")
+        .trim()
+        .replace(/\\/g, "/")
+        .replace(/\/+/g, "/")
+        .toLowerCase();
+}
+
+function buildLoRunCounts(rows) {
+    const counts = new Map();
+    for (const item of rows) {
+        const key = loPathKey(item);
+        if (!key) continue;
+        counts.set(key, (counts.get(key) || 0) + 1);
+    }
+    return counts;
+}
+
+function sortGroupedByLo(rows, counts) {
+    return [...rows].sort((a, b) => {
+        const ka = loPathKey(a);
+        const kb = loPathKey(b);
+        const ca = ka ? counts.get(ka) || 0 : 0;
+        const cb = kb ? counts.get(kb) || 0 : 0;
+        const aMulti = ca > 1 ? 0 : 1;
+        const bMulti = cb > 1 ? 0 : 1;
+        if (aMulti !== bMulti) return aMulti - bMulti;
+        if (ka !== kb) return ka.localeCompare(kb);
+        return new Date(b.timestamp) - new Date(a.timestamp);
+    });
+}
+
 function getFiltered() {
-    return testHistory.filter(item => {
+    const base = testHistory.filter(item => {
         if (currentFilterUser !== "ALL" && item.user !== currentFilterUser) return false;
         if (currentFilterSubject !== "ALL" && item.subject !== currentFilterSubject) return false;
         if (currentFilterStatus !== "ALL" && item.status !== currentFilterStatus) return false;
@@ -1173,9 +1206,24 @@ function getFiltered() {
         }
         return true;
     });
+
+    const counts = buildLoRunCounts(base);
+    let rows = base;
+    if (currentFilterRetest === "RETEST") {
+        rows = base.filter(item => {
+            const key = loPathKey(item);
+            return key && (counts.get(key) || 0) > 1;
+        });
+    } else if (currentFilterRetest === "UNIQUE") {
+        rows = base.filter(item => {
+            const key = loPathKey(item);
+            return !key || (counts.get(key) || 0) <= 1;
+        });
+    }
+    return { rows: sortGroupedByLo(rows, counts), counts };
 }
 
-function renderDashboard() {
+function renderDashboard()function renderDashboard() {
     closeAllStatusDropdowns();
     const total = testHistory.length;
     const subjects = new Set(testHistory.map(h => h.subject).filter(Boolean));
@@ -1191,8 +1239,18 @@ function renderDashboard() {
     document.getElementById("statHold").textContent = hold;
     document.getElementById("statLast").textContent = last;
 
-    const filtered = getFiltered();
+    const { rows: filtered, counts } = getFiltered();
     const tbody = document.getElementById("historyTbody");
+    const retestHint = document.getElementById("retestHint");
+    if (retestHint) {
+        const allCounts = buildLoRunCounts(testHistory);
+        const retestGroups = [...allCounts.values()].filter(n => n > 1).length;
+        const retestRuns = [...allCounts.entries()].reduce((sum, [, n]) => sum + (n > 1 ? n : 0), 0);
+        retestHint.hidden = retestGroups === 0;
+        retestHint.innerHTML = retestGroups
+            ? `<span class="retest-swatch" aria-hidden="true"></span> ${retestGroups} LO retested · ${retestRuns} runs`
+            : "";
+    }
 
     if (!filtered.length) {
         tbody.innerHTML = '<tr class="empty-row"><td colspan="9">No tests match the current filters.</td></tr>';
@@ -1211,8 +1269,14 @@ function renderDashboard() {
                 ? `<span class="dash-scenario" title="${esc(scen)}">${esc(scen.length > 28 ? scen.slice(0, 28) + "…" : scen)}</span>`
                 : '<span class="dash-muted">—</span>';
             const timeStr = esc(new Date(item.timestamp).toLocaleTimeString());
+            const loKey = loPathKey(item);
+            const runCount = loKey ? counts.get(loKey) || 1 : 1;
+            const isRetest = runCount > 1;
             const linkCell = item.restOfLink
-                ? `<span class="dash-link" title="${esc(item.restOfLink)}">${esc(item.restOfLink)}</span>`
+                ? `<div class="dash-link-wrap">
+                    <span class="dash-link" title="${esc(item.restOfLink)}">${esc(item.restOfLink)}</span>
+                    ${isRetest ? `<span class="lo-retest-badge" title="Same LO ran ${runCount} times">×${runCount}</span>` : ""}
+                   </div>`
                 : '<span class="dash-muted">—</span>';
             const notePreview = item.note
                 ? `<span class="dash-note-inline"><span class="dash-note-label">Note:</span> <span class="dash-note-text" title="${esc(item.note)}">${esc(item.note.length > 32 ? item.note.slice(0, 32) + "…" : item.note)}</span></span>`
@@ -1225,7 +1289,8 @@ function renderDashboard() {
                 ? `<span class="dash-user" title="${esc(item.user)}">${esc(item.user.length > 20 ? item.user.slice(0, 20) + "…" : item.user)}</span>`
                 : '<span class="dash-muted">—</span>';
             const rowAlt = idx % 2 === 1 ? " dash-row--alt" : "";
-            return `<tr class="dash-row${rowAlt}">
+            const rowRetest = isRetest ? " dash-row--retest" : "";
+            return `<tr class="dash-row${rowAlt}${rowRetest}" data-lo-key="${esc(loKey)}" ${isRetest ? `title="Retested LO · ${runCount} runs"` : ""}>
             <td>${userCell}</td>
             <td class="dash-time">${timeStr}</td>
             <td class="dash-subject">${esc(item.subject) || '<span class="dash-muted">—</span>'}</td>
@@ -1441,7 +1506,7 @@ function openMsgModal(rawMsg) {
 // Export / Import (server-backed)
 // ═══════════════════════════════════════════
 function exportCsv() {
-    const rows = getFiltered().length ? getFiltered() : testHistory;
+    const rows = getFiltered().rows;
     if (!rows.length) { toast("Nothing to export."); return; }
     const cols = ["User", "Timestamp", "Subject", "RestOfLink", "FullUrl", "MessagePreview", "ScenarioName", "Status", "Note"];
     const data = rows.map(i => [
@@ -1455,7 +1520,7 @@ function exportCsv() {
 }
 
 function exportJson() {
-    const rows = getFiltered().length ? getFiltered() : testHistory;
+    const rows = getFiltered().rows;
     if (!rows.length) { toast("Nothing to export."); return; }
     dl(new Blob([JSON.stringify(rows, null, 2)], { type: "application/json" }), "test_history.json");
     toast("JSON exported");
@@ -1856,6 +1921,8 @@ document.addEventListener("DOMContentLoaded", async () => {
         filterUser.onchange = e => { currentFilterUser = e.target.value; renderDashboard(); };
         document.getElementById("filterSubject").onchange = e => { currentFilterSubject = e.target.value; renderDashboard(); };
         document.getElementById("filterStatus").onchange  = e => { currentFilterStatus  = e.target.value; renderDashboard(); };
+        const filterRetestEl = document.getElementById("filterRetest");
+        if (filterRetestEl) filterRetestEl.onchange = e => { currentFilterRetest = e.target.value; renderDashboard(); };
         document.getElementById("filterSearch").oninput   = e => { currentSearchText    = e.target.value; renderDashboard(); };
         document.getElementById("clearFiltersBtn").onclick = () => {
             currentFilterUser    = "ALL";

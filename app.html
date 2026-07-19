@@ -195,10 +195,16 @@
                             <option value="Hold">Hold</option>
                             <option value="Rollback">Rollback</option>
                         </select>
+                        <select id="filterRetest" class="filter-select filter-select--stitch" title="Group by LO path">
+                            <option value="ALL">Runs: All</option>
+                            <option value="RETEST">Retested LOs</option>
+                            <option value="UNIQUE">Unique only</option>
+                        </select>
                         <div class="filter-search-wrap">
                             <input type="text" id="filterSearch" class="filter-input filter-input--stitch filter-input--search" placeholder="Search subject, link, note…" autocomplete="off" spellcheck="false">
                         </div>
                         <button type="button" class="filter-clear-btn" id="clearFiltersBtn" title="Clear all filters">Clear</button>
+                        <span class="retest-hint" id="retestHint" hidden></span>
                     </div>
 
                     <div class="table-wrap table-wrap--stitch">
