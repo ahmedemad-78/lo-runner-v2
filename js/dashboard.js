@@ -296,15 +296,18 @@
     toast("JSON exported.");
   }
 
-  function parseCsvLine(line) {
-    const out = [];
+  function parseCsvRecords(text) {
+    const cleaned = String(text || "").replace(/^\uFEFF/, "");
+    const rows = [];
+    let row = [];
     let cur = "";
     let inQuotes = false;
-    for (let i = 0; i < line.length; i++) {
-      const ch = line[i];
+    for (let i = 0; i < cleaned.length; i++) {
+      const ch = cleaned[i];
+      const next = cleaned[i + 1];
       if (inQuotes) {
         if (ch === '"') {
-          if (line[i + 1] === '"') {
+          if (next === '"') {
             cur += '"';
             i++;
           } else {
@@ -316,21 +319,36 @@
       } else if (ch === '"') {
         inQuotes = true;
       } else if (ch === ",") {
-        out.push(cur);
+        row.push(cur);
         cur = "";
+      } else if (ch === "\n") {
+        row.push(cur);
+        cur = "";
+        if (row.some(cell => String(cell).trim() !== "")) rows.push(row);
+        row = [];
+      } else if (ch === "\r") {
+        // ignore, handle on \n
       } else {
         cur += ch;
       }
     }
-    out.push(cur);
-    return out;
+    row.push(cur);
+    if (row.some(cell => String(cell).trim() !== "")) rows.push(row);
+    return rows;
   }
 
   function normalizeImportedRow(raw) {
     const status = String(raw.status || raw.result || raw.Status || "Hold").trim() || "Hold";
     const allowed = ["Approve", "Hold", "Rollback"];
     const normalizedStatus = allowed.includes(status) ? status : "Hold";
-    const fullMessage = raw.fullMessage || raw.full_message || raw.Message || raw.message || "{}";
+    const fullMessage =
+      raw.fullMessage ||
+      raw.full_message ||
+      raw.MessagePreview ||
+      raw.messagePreview ||
+      raw.Message ||
+      raw.message ||
+      "{}";
     return {
       user: String(raw.user || raw.User || raw.username || raw.source_username || "").trim(),
       subject: String(raw.subject || raw.Subject || "").trim(),
@@ -345,14 +363,12 @@
   }
 
   function parseCsvText(text) {
-    const cleaned = text.replace(/^\uFEFF/, "").trim();
-    if (!cleaned) return [];
-    const lines = cleaned.split(/\r?\n/).filter(l => l.trim());
-    if (lines.length < 2) return [];
-    const headers = parseCsvLine(lines[0]).map(h => h.trim());
+    const table = parseCsvRecords(text);
+    if (table.length < 2) return [];
+    const headers = table[0].map(h => String(h || "").trim());
     const rows = [];
-    for (let i = 1; i < lines.length; i++) {
-      const cols = parseCsvLine(lines[i]);
+    for (let i = 1; i < table.length; i++) {
+      const cols = table[i];
       const obj = {};
       headers.forEach((h, idx) => {
         obj[h] = cols[idx] != null ? cols[idx] : "";
