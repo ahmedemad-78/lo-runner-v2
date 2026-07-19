@@ -340,6 +340,14 @@
 
     document.getElementById("exportCsvBtn").onclick = exportCsv;
     document.getElementById("exportJsonBtn").onclick = exportJson;
+    document.getElementById("loadDataBtn").onclick = async () => {
+      try {
+        await refreshTasks();
+        toast("Data loaded.");
+      } catch (err) {
+        toast(err.message || "Could not load data.");
+      }
+    };
     document.getElementById("clearAllBtn").onclick = async () => {
       if (!confirm("Delete all tasks you can access?")) return;
       try {

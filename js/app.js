@@ -65,6 +65,12 @@ function switchPage(id) {
     page.classList.add("active");
     const navBtn = document.querySelector(`.nav-btn[data-page="${id}"]`);
     if (navBtn) navBtn.classList.add("active");
+    if (id === "scenarios" || id === "test") {
+        const nextHash = "#" + id;
+        if (location.hash !== nextHash) {
+            history.replaceState(null, "", nextHash);
+        }
+    }
     if (id === "dashboard" && typeof renderDashboard === "function") renderDashboard();
     if (id === "test") {
         updateUrl();
@@ -1509,6 +1515,17 @@ document.addEventListener("DOMContentLoaded", async () => {
     document.querySelectorAll(".nav-btn[data-page]").forEach(btn =>
         btn.addEventListener("click", () => switchPage(btn.dataset.page))
     );
+
+    if (location.hash === "#scenarios") {
+        switchPage("scenarios");
+    } else if (location.hash === "#test") {
+        switchPage("test");
+    }
+
+    window.addEventListener("hashchange", () => {
+        if (location.hash === "#scenarios") switchPage("scenarios");
+        if (location.hash === "#test") switchPage("test");
+    });
 
     document.getElementById("fireBtn").onclick = fireResult;
     document.getElementById("copyUrlBtn").onclick = () => {
