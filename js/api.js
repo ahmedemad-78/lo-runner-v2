@@ -38,7 +38,8 @@
       p_note: payload.note || "",
       p_scenario_name: payload.scenarioName || payload.scenario_name || "",
       p_postmessage_payload: payload.postmessage_payload || null,
-      p_full_message: payload.fullMessage || payload.full_message || ""
+      p_full_message: payload.fullMessage || payload.full_message || "",
+      p_source_username: payload.user || payload.source_username || payload.username || null
     });
     return mapTask(row);
   }

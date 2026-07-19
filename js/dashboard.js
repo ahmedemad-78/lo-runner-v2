@@ -256,29 +256,163 @@
       toast("Nothing to export.");
       return;
     }
-    const header = ["User", "Time", "Subject", "Link", "Status", "Scenario", "Note", "URL"];
+    const header = ["User", "Timestamp", "Subject", "RestOfLink", "FullUrl", "MessagePreview", "ScenarioName", "Status", "Note"];
     const lines = [header.join(",")].concat(
       rows.map(i =>
-        [i.user, i.timestamp, i.subject, i.restOfLink, i.status, i.scenarioName, i.note, i.fullUrl]
+        [
+          i.user,
+          i.timestamp,
+          i.subject,
+          i.restOfLink,
+          i.fullUrl,
+          i.messagePreview || (i.fullMessage || "").substring(0, 80),
+          i.scenarioName,
+          i.status,
+          i.note
+        ]
           .map(v => `"${String(v || "").replace(/"/g, '""')}"`)
           .join(",")
       )
     );
     const a = document.createElement("a");
-    a.href = URL.createObjectURL(new Blob([lines.join("\n")], { type: "text/csv" }));
-    a.download = "lo-tasks.csv";
+    a.href = URL.createObjectURL(new Blob(["\uFEFF" + lines.join("\n")], { type: "text/csv;charset=utf-8;" }));
+    a.download = "test_history.csv";
     a.click();
     URL.revokeObjectURL(a.href);
     toast("CSV exported.");
   }
 
   function exportJson() {
+    const rows = getFiltered();
+    if (!rows.length) {
+      toast("Nothing to export.");
+      return;
+    }
     const a = document.createElement("a");
-    a.href = URL.createObjectURL(new Blob([JSON.stringify(getFiltered(), null, 2)], { type: "application/json" }));
-    a.download = "lo-tasks.json";
+    a.href = URL.createObjectURL(new Blob([JSON.stringify(rows, null, 2)], { type: "application/json" }));
+    a.download = "test_history.json";
     a.click();
     URL.revokeObjectURL(a.href);
     toast("JSON exported.");
+  }
+
+  function parseCsvLine(line) {
+    const out = [];
+    let cur = "";
+    let inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (inQuotes) {
+        if (ch === '"') {
+          if (line[i + 1] === '"') {
+            cur += '"';
+            i++;
+          } else {
+            inQuotes = false;
+          }
+        } else {
+          cur += ch;
+        }
+      } else if (ch === '"') {
+        inQuotes = true;
+      } else if (ch === ",") {
+        out.push(cur);
+        cur = "";
+      } else {
+        cur += ch;
+      }
+    }
+    out.push(cur);
+    return out;
+  }
+
+  function normalizeImportedRow(raw) {
+    const status = String(raw.status || raw.result || raw.Status || "Hold").trim() || "Hold";
+    const allowed = ["Approve", "Hold", "Rollback"];
+    const normalizedStatus = allowed.includes(status) ? status : "Hold";
+    const fullMessage = raw.fullMessage || raw.full_message || raw.Message || raw.message || "{}";
+    return {
+      user: String(raw.user || raw.User || raw.username || raw.source_username || "").trim(),
+      subject: String(raw.subject || raw.Subject || "").trim(),
+      restOfLink: String(raw.restOfLink || raw.path || raw.Link || raw.RestOfLink || "").trim(),
+      fullUrl: String(raw.fullUrl || raw.lo_url || raw.URL || raw.FullUrl || "").trim(),
+      fullMessage: typeof fullMessage === "string" ? fullMessage : JSON.stringify(fullMessage),
+      note: String(raw.note || raw.Note || "").trim(),
+      status: normalizedStatus,
+      scenarioName: String(raw.scenarioName || raw.scenario_name || raw.ScenarioName || raw.Scenario || "").trim(),
+      postmessage_payload: raw.postmessage_payload || null
+    };
+  }
+
+  function parseCsvText(text) {
+    const cleaned = text.replace(/^\uFEFF/, "").trim();
+    if (!cleaned) return [];
+    const lines = cleaned.split(/\r?\n/).filter(l => l.trim());
+    if (lines.length < 2) return [];
+    const headers = parseCsvLine(lines[0]).map(h => h.trim());
+    const rows = [];
+    for (let i = 1; i < lines.length; i++) {
+      const cols = parseCsvLine(lines[i]);
+      const obj = {};
+      headers.forEach((h, idx) => {
+        obj[h] = cols[idx] != null ? cols[idx] : "";
+      });
+      rows.push(normalizeImportedRow(obj));
+    }
+    return rows;
+  }
+
+  function parseImportFile(file, text) {
+    const name = (file.name || "").toLowerCase();
+    if (name.endsWith(".json") || text.trim().startsWith("[") || text.trim().startsWith("{")) {
+      const parsed = JSON.parse(text);
+      const arr = Array.isArray(parsed) ? parsed : parsed.tasks || parsed.data || [];
+      if (!Array.isArray(arr)) throw new Error("JSON must be an array of records.");
+      return arr.map(normalizeImportedRow);
+    }
+    if (name.endsWith(".csv") || text.includes(",")) {
+      return parseCsvText(text);
+    }
+    throw new Error("Unsupported file. Use .json or .csv");
+  }
+
+  async function importHistoryFile(file) {
+    const text = await file.text();
+    const rows = parseImportFile(file, text);
+    if (!rows.length) {
+      toast("No rows found in file.");
+      return;
+    }
+    let added = 0;
+    let failed = 0;
+    toast(`Importing ${rows.length} rows…`, 3500);
+    for (const row of rows) {
+      try {
+        await LOApi.createTask(row);
+        added++;
+      } catch (err) {
+        console.error(err);
+        failed++;
+      }
+    }
+    await refreshTasks();
+    if (failed) toast(`Imported ${added}, failed ${failed}.`);
+    else toast(`Imported ${added} records.`);
+  }
+
+  function makeFileInput(handler, accept) {
+    const inp = document.createElement("input");
+    inp.type = "file";
+    inp.accept = accept;
+    inp.style.display = "none";
+    inp.onchange = e => {
+      if (e.target.files.length) {
+        handler(e.target.files[0]);
+        inp.value = "";
+      }
+    };
+    document.body.appendChild(inp);
+    return inp;
   }
 
   document.addEventListener("DOMContentLoaded", async () => {
@@ -340,14 +474,10 @@
 
     document.getElementById("exportCsvBtn").onclick = exportCsv;
     document.getElementById("exportJsonBtn").onclick = exportJson;
-    document.getElementById("loadDataBtn").onclick = async () => {
-      try {
-        await refreshTasks();
-        toast("Data loaded.");
-      } catch (err) {
-        toast(err.message || "Could not load data.");
-      }
-    };
+    const importInput = makeFileInput(file => {
+      importHistoryFile(file).catch(err => toast(err.message || "Import failed."));
+    }, ".json,.csv,application/json,text/csv");
+    document.getElementById("loadDataBtn").onclick = () => importInput.click();
     document.getElementById("clearAllBtn").onclick = async () => {
       if (!confirm("Delete all tasks you can access?")) return;
       try {
