@@ -1,0 +1,3 @@
+-- LO Runner v2 — applied remotely via Supabase MCP (lo_runner_schema)
+-- Local reference copy of the production schema.
+-- Seed team_leader: username=admin access_code=k7m2xpq
