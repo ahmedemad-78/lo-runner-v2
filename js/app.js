@@ -130,13 +130,60 @@ function saveScenarios() {
 }
 
 // ═══════════════════════════════════════════
-// Toast
+// Toast / Flash Hint
 // ═══════════════════════════════════════════
-function toast(msg, dur = 2200) {
+let toastTimer = null;
+let toastHideTimer = null;
+
+function inferToastType(msg) {
+    const t = String(msg || "").toLowerCase();
+    if (/(fail|error|invalid|could not|denied|unable)/.test(t)) return "error";
+    if (/(warn|caution|empty|nothing)/.test(t)) return "warning";
+    if (/(imported|exported|saved|copied|deleted|cleared|updated|ready|appended|done|success)/.test(t)) return "success";
+    return "info";
+}
+
+function toastIconFor(type) {
+    return ({ success: "check_circle", error: "error", warning: "warning", info: "info" })[type] || "info";
+}
+
+/**
+ * toast(message)
+ * toast(message, durationMs)
+ * toast(message, { type, duration })
+ */
+function toast(msg, durOrOpts = 2800) {
     const el = document.getElementById("toast");
-    el.textContent = msg;
-    el.classList.add("show");
-    setTimeout(() => el.classList.remove("show"), dur);
+    if (!el) return;
+
+    let duration = 2800;
+    let type = inferToastType(msg);
+    if (typeof durOrOpts === "number") {
+        duration = durOrOpts;
+    } else if (durOrOpts && typeof durOrOpts === "object") {
+        if (durOrOpts.duration != null) duration = durOrOpts.duration;
+        if (durOrOpts.type) type = durOrOpts.type;
+    }
+
+    const msgEl = document.getElementById("toastMsg");
+    const iconEl = document.getElementById("toastIcon");
+    if (msgEl) msgEl.textContent = msg;
+    else el.textContent = msg;
+    if (iconEl) iconEl.textContent = toastIconFor(type);
+
+    el.classList.remove("toast--success", "toast--error", "toast--warning", "toast--info", "hiding", "show");
+    void el.offsetWidth;
+    el.classList.add("toast--" + type, "show");
+
+    clearTimeout(toastTimer);
+    clearTimeout(toastHideTimer);
+    toastTimer = setTimeout(() => {
+        el.classList.add("hiding");
+        el.classList.remove("show");
+        toastHideTimer = setTimeout(() => {
+            el.classList.remove("hiding", "toast--success", "toast--error", "toast--warning", "toast--info");
+        }, 240);
+    }, duration);
 }
 
 // ═══════════════════════════════════════════
