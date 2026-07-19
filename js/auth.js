@@ -25,7 +25,7 @@
   function requireSession(redirectTo) {
     const session = getSession();
     if (!session) {
-      const target = redirectTo || "../html/login.html";
+      const target = redirectTo || "./index.html";
       window.location.replace(target);
       return null;
     }
@@ -47,7 +47,7 @@
 
   function logout(redirectTo) {
     clearSession();
-    window.location.replace(redirectTo || "../html/login.html");
+    window.location.replace(redirectTo || "./index.html");
   }
 
   function accessCode() {

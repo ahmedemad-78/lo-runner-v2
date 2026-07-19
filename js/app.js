@@ -1489,13 +1489,13 @@ function dl(blob, name) {
 // Init
 // ═══════════════════════════════════════════
 document.addEventListener("DOMContentLoaded", async () => {
-    const session = LOAuth.requireSession("./login.html");
+    const session = LOAuth.requireSession("./index.html");
     if (!session) return;
 
     const nameEl = document.getElementById("userChipName");
     if (nameEl) nameEl.textContent = session.username;
     const logoutBtn = document.getElementById("logoutBtn");
-    if (logoutBtn) logoutBtn.onclick = () => LOAuth.logout("./login.html");
+    if (logoutBtn) logoutBtn.onclick = () => LOAuth.logout("./index.html");
 
     load();
     await loadTasksFromServer();

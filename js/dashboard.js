@@ -282,7 +282,7 @@
   }
 
   document.addEventListener("DOMContentLoaded", async () => {
-    session = LOAuth.requireSession("./login.html");
+    session = LOAuth.requireSession("./index.html");
     if (!session) return;
 
     document.getElementById("userChipName").textContent = session.username;
@@ -292,7 +292,7 @@
 
     applyDark();
     document.getElementById("darkToggleBtn").onclick = toggleDark;
-    document.getElementById("logoutBtn").onclick = () => LOAuth.logout("./login.html");
+    document.getElementById("logoutBtn").onclick = () => LOAuth.logout("./index.html");
 
     const manageBtn = document.getElementById("manageTeamBtn");
     const teamPanel = document.getElementById("teamPanel");
