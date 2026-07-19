@@ -21,7 +21,7 @@ let recordingSteps = [];
 let recordedTestIds = [];
 
 let lastQuickStatus = "Hold";
-let currentPage = "test";
+let currentPage = "dashboard";
 let cachedDeviceUser = null;
 
 function scenarioNameInputEl() {
@@ -55,21 +55,16 @@ function load() {
 // ═══════════════════════════════════════════
 function switchPage(id) {
     const page = document.getElementById("page-" + id);
-    if (!page) {
-        if (id === "dashboard") window.location.href = "./dashboard.html";
-        return;
-    }
+    if (!page) return;
     currentPage = id;
     document.querySelectorAll(".page").forEach(p => p.classList.remove("active"));
     document.querySelectorAll(".nav-btn[data-page]").forEach(b => b.classList.remove("active"));
     page.classList.add("active");
     const navBtn = document.querySelector(`.nav-btn[data-page="${id}"]`);
     if (navBtn) navBtn.classList.add("active");
-    if (id === "scenarios" || id === "test") {
-        const nextHash = "#" + id;
-        if (location.hash !== nextHash) {
-            history.replaceState(null, "", nextHash);
-        }
+    const nextHash = "#" + id;
+    if (location.hash !== nextHash) {
+        history.replaceState(null, "", nextHash);
     }
     if (id === "dashboard" && typeof renderDashboard === "function") renderDashboard();
     if (id === "test") {
@@ -1396,60 +1391,135 @@ function openMsgModal(rawMsg) {
 }
 
 // ═══════════════════════════════════════════
-// Export / Import
+// Export / Import (server-backed)
 // ═══════════════════════════════════════════
 function exportCsv() {
-    if (!testHistory.length) { toast("No data."); return; }
+    const rows = getFiltered().length ? getFiltered() : testHistory;
+    if (!rows.length) { toast("Nothing to export."); return; }
     const cols = ["User", "Timestamp", "Subject", "RestOfLink", "FullUrl", "MessagePreview", "ScenarioName", "Status", "Note"];
-    const rows = testHistory.map(i => [
+    const data = rows.map(i => [
         i.user || "", i.timestamp, i.subject, i.restOfLink, i.fullUrl,
-        i.messagePreview, i.scenarioName || "", i.status, i.note
+        i.messagePreview || (i.fullMessage || "").substring(0, 80),
+        i.scenarioName || "", i.status, i.note
     ]);
-    const csv = [cols, ...rows].map(r => r.map(c => `"${String(c || "").replace(/"/g, '""')}"`).join(",")).join("\n");
+    const csv = [cols, ...data].map(r => r.map(c => `"${String(c || "").replace(/"/g, '""')}"`).join(",")).join("\n");
     dl(new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" }), "test_history.csv");
     toast("CSV exported");
 }
 
 function exportJson() {
-    if (!testHistory.length) { toast("No data."); return; }
-    dl(new Blob([JSON.stringify(testHistory, null, 2)], { type: "application/json" }), "test_history.json");
+    const rows = getFiltered().length ? getFiltered() : testHistory;
+    if (!rows.length) { toast("Nothing to export."); return; }
+    dl(new Blob([JSON.stringify(rows, null, 2)], { type: "application/json" }), "test_history.json");
     toast("JSON exported");
 }
 
-function importJson(file) {
-    const r = new FileReader();
-    r.onload = e => {
-        try {
-            const arr = JSON.parse(e.target.result);
-            if (!Array.isArray(arr)) throw new Error("Must be an array.");
-            let added = 0;
-            for (let item of arr) {
-                if (!item.id) item.id = Date.now() + "-" + Math.random().toString(36).substr(2, 8) + "-" + added;
-                item.timestamp = item.timestamp || new Date().toISOString();
-                item.status = item.status || "Hold";
-                item.note = item.note || "";
-                item.fullMessage = item.fullMessage || "{}";
-                item.messagePreview = item.messagePreview || item.fullMessage.substring(0, 80);
-                item.subject = item.subject || "";
-                item.restOfLink = item.restOfLink || "";
-                item.fullUrl = item.fullUrl || "";
-                item.scenarioName = item.scenarioName != null ? String(item.scenarioName) : "";
-                item.user = item.user != null ? String(item.user) : "";
-                if (Object.prototype.hasOwnProperty.call(item, "assertionResults")) delete item.assertionResults;
-                if (!testHistory.some(e => e.id === item.id)) {
-                    testHistory.push(item);
-                    added++;
-                }
+function parseCsvRecords(text) {
+    const cleaned = String(text || "").replace(/^\uFEFF/, "");
+    const rows = [];
+    let row = [];
+    let cur = "";
+    let inQuotes = false;
+    for (let i = 0; i < cleaned.length; i++) {
+        const ch = cleaned[i];
+        const next = cleaned[i + 1];
+        if (inQuotes) {
+            if (ch === '"') {
+                if (next === '"') { cur += '"'; i++; }
+                else inQuotes = false;
+            } else {
+                cur += ch;
             }
-            testHistory.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-            if (testHistory.length > 200) testHistory = testHistory.slice(0, 200);
-            saveHistory();
-            toast(`Appended ${added} entries`);
-        } catch (err) {
-            alert("Invalid JSON: " + err.message);
+        } else if (ch === '"') {
+            inQuotes = true;
+        } else if (ch === ",") {
+            row.push(cur); cur = "";
+        } else if (ch === "\n") {
+            row.push(cur); cur = "";
+            if (row.some(cell => String(cell).trim() !== "")) rows.push(row);
+            row = [];
+        } else if (ch !== "\r") {
+            cur += ch;
         }
+    }
+    row.push(cur);
+    if (row.some(cell => String(cell).trim() !== "")) rows.push(row);
+    return rows;
+}
+
+function normalizeImportedRow(raw) {
+    const status = String(raw.status || raw.result || raw.Status || "Hold").trim() || "Hold";
+    const allowed = ["Approve", "Hold", "Rollback"];
+    const normalizedStatus = allowed.includes(status) ? status : "Hold";
+    const fullMessage =
+        raw.fullMessage ||
+        raw.full_message ||
+        raw.MessagePreview ||
+        raw.messagePreview ||
+        raw.Message ||
+        raw.message ||
+        "{}";
+    return {
+        user: String(raw.user || raw.User || raw.username || raw.source_username || "").trim(),
+        subject: String(raw.subject || raw.Subject || "").trim(),
+        restOfLink: String(raw.restOfLink || raw.path || raw.Link || raw.RestOfLink || "").trim(),
+        fullUrl: String(raw.fullUrl || raw.lo_url || raw.URL || raw.FullUrl || "").trim(),
+        fullMessage: typeof fullMessage === "string" ? fullMessage : JSON.stringify(fullMessage),
+        note: String(raw.note || raw.Note || "").trim(),
+        status: normalizedStatus,
+        scenarioName: String(raw.scenarioName || raw.scenario_name || raw.ScenarioName || raw.Scenario || "").trim(),
+        postmessage_payload: raw.postmessage_payload || null
     };
-    r.readAsText(file);
+}
+
+function parseCsvText(text) {
+    const table = parseCsvRecords(text);
+    if (table.length < 2) return [];
+    const headers = table[0].map(h => String(h || "").trim());
+    const rows = [];
+    for (let i = 1; i < table.length; i++) {
+        const cols = table[i];
+        const obj = {};
+        headers.forEach((h, idx) => { obj[h] = cols[idx] != null ? cols[idx] : ""; });
+        rows.push(normalizeImportedRow(obj));
+    }
+    return rows;
+}
+
+function parseImportFile(file, text) {
+    const name = (file.name || "").toLowerCase();
+    if (name.endsWith(".json") || text.trim().startsWith("[") || text.trim().startsWith("{")) {
+        const parsed = JSON.parse(text);
+        const arr = Array.isArray(parsed) ? parsed : parsed.tasks || parsed.data || [];
+        if (!Array.isArray(arr)) throw new Error("JSON must be an array of records.");
+        return arr.map(normalizeImportedRow);
+    }
+    if (name.endsWith(".csv") || text.includes(",")) {
+        return parseCsvText(text);
+    }
+    throw new Error("Unsupported file. Use .json or .csv");
+}
+
+async function importHistoryFile(file) {
+    const text = await file.text();
+    const rows = parseImportFile(file, text);
+    if (!rows.length) { toast("No rows found in file."); return; }
+    let added = 0;
+    let failed = 0;
+    toast(`Importing ${rows.length} rows…`, 3500);
+    for (const row of rows) {
+        try {
+            await LOApi.createTask(row);
+            added++;
+        } catch (err) {
+            console.error(err);
+            failed++;
+        }
+    }
+    await loadTasksFromServer();
+    saveHistory();
+    if (failed) toast(`Imported ${added}, failed ${failed}.`);
+    else toast(`Imported ${added} records.`);
 }
 
 function exportScenarios() {
@@ -1492,6 +1562,166 @@ function dl(blob, name) {
 }
 
 // ═══════════════════════════════════════════
+// Manage Team
+// ═══════════════════════════════════════════
+let teamMembers = [];
+let memberEditId = null;
+
+function openModal(id) {
+    document.getElementById(id).classList.add("open");
+}
+function closeModal(id) {
+    document.getElementById(id).classList.remove("open");
+}
+
+function formatTeamTime(iso) {
+    try { return new Date(iso).toLocaleString(); } catch { return iso || "—"; }
+}
+
+function renderTeam() {
+    const tbody = document.getElementById("teamTbody");
+    if (!tbody) return;
+    const session = LOAuth.getSession();
+    if (!teamMembers.length) {
+        tbody.innerHTML = '<tr class="empty-row"><td colspan="5">No team members yet.</td></tr>';
+        return;
+    }
+    tbody.innerHTML = teamMembers.map(m => `<tr>
+        <td>${esc(m.username)}</td>
+        <td class="mono-cell">
+          <code>${esc(m.access_code)}</code>
+          <button type="button" class="dash-icon-btn copy-code-btn" data-code="${esc(m.access_code)}" title="Copy code"><span class="material-symbols-outlined">content_copy</span></button>
+        </td>
+        <td><span class="role-pill role-pill--${esc(m.role)}">${esc(m.role)}</span></td>
+        <td class="mono-cell">${esc(formatTeamTime(m.created_at))}</td>
+        <td class="td-actions">
+          <button type="button" class="dash-icon-btn edit-member-btn" data-id="${esc(m.id)}" title="Edit"><span class="material-symbols-outlined">edit</span></button>
+          <button type="button" class="dash-icon-btn delete-member-btn" data-id="${esc(m.id)}" title="Delete" ${session && m.id === session.id ? "disabled" : ""}><span class="material-symbols-outlined">person_remove</span></button>
+        </td>
+      </tr>`).join("");
+
+    tbody.querySelectorAll(".copy-code-btn").forEach(btn => {
+        btn.onclick = () => navigator.clipboard.writeText(btn.dataset.code).then(() => toast("Access code copied."));
+    });
+    tbody.querySelectorAll(".edit-member-btn").forEach(btn => {
+        btn.onclick = () => openMemberModal(btn.dataset.id);
+    });
+    tbody.querySelectorAll(".delete-member-btn").forEach(btn => {
+        btn.onclick = async () => {
+            const member = teamMembers.find(m => m.id === btn.dataset.id);
+            if (!member) return;
+            if (!confirm(`Delete account "${member.username}" permanently?`)) return;
+            try {
+                await LOApi.deleteTeamMember(member.id);
+                teamMembers = teamMembers.filter(m => m.id !== member.id);
+                renderTeam();
+                toast("Account deleted.");
+            } catch (err) {
+                toast(err.message || "Could not delete account.");
+            }
+        };
+    });
+}
+
+function openMemberModal(userId) {
+    memberEditId = userId || null;
+    const errorEl = document.getElementById("memberError");
+    if (errorEl) errorEl.hidden = true;
+    document.getElementById("memberModalTitle").textContent = userId ? "Edit account" : "Add tester";
+    if (userId) {
+        const m = teamMembers.find(x => x.id === userId);
+        document.getElementById("memberId").value = m.id;
+        document.getElementById("memberUsername").value = m.username;
+        document.getElementById("memberCode").value = m.access_code;
+        document.getElementById("memberRole").value = m.role;
+    } else {
+        document.getElementById("memberId").value = "";
+        document.getElementById("memberUsername").value = "";
+        document.getElementById("memberCode").value = LOApi.generateAccessCode(7);
+        document.getElementById("memberRole").value = "tester";
+    }
+    openModal("memberModal");
+}
+
+function revealCode(username, code) {
+    document.getElementById("revealUsername").textContent = username;
+    document.getElementById("revealCode").textContent = code;
+    openModal("codeRevealModal");
+}
+
+async function refreshTeam() {
+    const session = LOAuth.getSession();
+    if (!LOAuth.isTeamLeader(session)) return;
+    teamMembers = await LOApi.listTeam();
+    renderTeam();
+}
+
+function wireTeamUi(session) {
+    const manageBtn = document.getElementById("manageTeamBtn");
+    const teamPanel = document.getElementById("teamPanel");
+    if (!manageBtn || !teamPanel) return;
+    if (!LOAuth.isTeamLeader(session)) return;
+
+    manageBtn.hidden = false;
+    manageBtn.onclick = () => {
+        teamPanel.hidden = !teamPanel.hidden;
+        if (!teamPanel.hidden) refreshTeam().catch(err => toast(err.message || "Could not load team."));
+    };
+
+    const addMemberBtn = document.getElementById("addMemberBtn");
+    if (addMemberBtn) addMemberBtn.onclick = () => openMemberModal(null);
+    const regenCodeBtn = document.getElementById("regenCodeBtn");
+    if (regenCodeBtn) regenCodeBtn.onclick = () => {
+        document.getElementById("memberCode").value = LOApi.generateAccessCode(7);
+    };
+    const memberCancelBtn = document.getElementById("memberCancelBtn");
+    if (memberCancelBtn) memberCancelBtn.onclick = () => closeModal("memberModal");
+    const memberForm = document.getElementById("memberForm");
+    if (memberForm) {
+        memberForm.onsubmit = async e => {
+            e.preventDefault();
+            const errorEl = document.getElementById("memberError");
+            errorEl.hidden = true;
+            const username = document.getElementById("memberUsername").value.trim();
+            const accessCode = document.getElementById("memberCode").value.trim().toLowerCase();
+            const role = document.getElementById("memberRole").value;
+            try {
+                if (memberEditId) {
+                    const updated = await LOApi.updateTeamMember(memberEditId, { username, role, accessCode });
+                    const idx = teamMembers.findIndex(m => m.id === memberEditId);
+                    if (idx >= 0) teamMembers[idx] = updated;
+                    renderTeam();
+                    closeModal("memberModal");
+                    toast("Account updated.");
+                } else {
+                    const created = await LOApi.createTeamMember({
+                        username,
+                        role,
+                        accessCode: accessCode || null
+                    });
+                    teamMembers.push(created);
+                    renderTeam();
+                    closeModal("memberModal");
+                    revealCode(created.username, created.access_code);
+                }
+            } catch (err) {
+                errorEl.textContent = err.message || "Could not save account.";
+                errorEl.hidden = false;
+            }
+        };
+    }
+    const copyRevealCodeBtn = document.getElementById("copyRevealCodeBtn");
+    if (copyRevealCodeBtn) {
+        copyRevealCodeBtn.onclick = () => {
+            const code = document.getElementById("revealCode").textContent;
+            navigator.clipboard.writeText(code).then(() => toast("Access code copied."));
+        };
+    }
+    const revealCloseBtn = document.getElementById("revealCloseBtn");
+    if (revealCloseBtn) revealCloseBtn.onclick = () => closeModal("codeRevealModal");
+}
+
+// ═══════════════════════════════════════════
 // Init
 // ═══════════════════════════════════════════
 document.addEventListener("DOMContentLoaded", async () => {
@@ -1502,6 +1732,12 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (nameEl) nameEl.textContent = session.username;
     const logoutBtn = document.getElementById("logoutBtn");
     if (logoutBtn) logoutBtn.onclick = () => LOAuth.logout("./index.html");
+    const dashSub = document.getElementById("dashSubtitle");
+    if (dashSub) {
+        dashSub.textContent = LOAuth.isTeamLeader(session)
+            ? "All tasks from every tester"
+            : "Only your submitted tasks";
+    }
 
     load();
     await loadTasksFromServer();
@@ -1511,20 +1747,22 @@ document.addEventListener("DOMContentLoaded", async () => {
     updateScenariosBadge();
     updateUrl();
     loadNoteForConfig();
+    wireTeamUi(session);
 
     document.querySelectorAll(".nav-btn[data-page]").forEach(btn =>
         btn.addEventListener("click", () => switchPage(btn.dataset.page))
     );
 
-    if (location.hash === "#scenarios") {
-        switchPage("scenarios");
-    } else if (location.hash === "#test") {
-        switchPage("test");
+    const hash = (location.hash || "").replace("#", "");
+    if (hash === "scenarios" || hash === "test" || hash === "dashboard") {
+        switchPage(hash);
+    } else {
+        switchPage("dashboard");
     }
 
     window.addEventListener("hashchange", () => {
-        if (location.hash === "#scenarios") switchPage("scenarios");
-        if (location.hash === "#test") switchPage("test");
+        const h = (location.hash || "").replace("#", "");
+        if (h === "scenarios" || h === "test" || h === "dashboard") switchPage(h);
     });
 
     document.getElementById("fireBtn").onclick = fireResult;
@@ -1592,7 +1830,10 @@ document.addEventListener("DOMContentLoaded", async () => {
     const scenFileInput = makeFileInput(f => importScenarios(f), ".json");
     const exportCsvBtn = document.getElementById("exportCsvBtn");
     if (exportCsvBtn) {
-        const fileInput = makeFileInput(f => importJson(f), ".json");
+        const fileInput = makeFileInput(
+            f => importHistoryFile(f).catch(err => toast(err.message || "Import failed.")),
+            ".json,.csv,application/json,text/csv"
+        );
         exportCsvBtn.onclick = exportCsv;
         document.getElementById("exportJsonBtn").onclick = exportJson;
         const saveLocalBackupBtn = document.getElementById("saveLocalBackupBtn");
