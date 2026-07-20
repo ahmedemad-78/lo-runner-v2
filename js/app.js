@@ -1365,12 +1365,16 @@ function renderDashboard() {
             const loKey = loPathKey(item);
             const runCount = loKey ? counts.get(loKey) || 1 : 1;
             const isRetest = runCount > 1;
-            const isGroupStart = isRetest && loKey !== prevLoKey;
             prevLoKey = loKey || prevLoKey;
             const loType = loTypeFromPath(item);
             const linkCell = item.restOfLink
                 ? `<div class="dash-link-wrap">
-                    <span class="dash-link" title="${esc(item.restOfLink)}">${esc(item.restOfLink)}</span>
+                    <div class="dash-link-main">
+                      <span class="dash-link" title="${esc(item.restOfLink)}">${esc(item.restOfLink)}</span>
+                      <button type="button" class="dash-copy-btn" data-copy="${esc(item.restOfLink)}" title="Copy link" aria-label="Copy link">
+                        <span class="material-symbols-outlined">content_copy</span>
+                      </button>
+                    </div>
                     ${isRetest ? `<span class="lo-retest-badge" title="Same LO ran ${runCount} times"><span class="material-symbols-outlined">replay</span>${runCount}×</span>` : ""}
                    </div>`
                 : '<span class="dash-muted">—</span>';
@@ -1385,9 +1389,8 @@ function renderDashboard() {
                 ? `<span class="dash-user" title="${esc(item.user)}">${esc(item.user.length > 20 ? item.user.slice(0, 20) + "…" : item.user)}</span>`
                 : '<span class="dash-muted">—</span>';
             const rowAlt = idx % 2 === 1 ? " dash-row--alt" : "";
-            const rowRetest = isRetest ? " dash-row--retest" : "";
-            const rowStart = isGroupStart ? " dash-row--retest-start" : "";
-            return `<tr class="dash-row${rowAlt}${rowRetest}${rowStart}" data-lo-key="${esc(loKey)}" ${isRetest ? `title="Retested LO · ${runCount} runs"` : ""}>
+            /* Retest grouping kept via badge + data-lo-key only — no orange/peach row chrome */
+            return `<tr class="dash-row${rowAlt}" data-lo-key="${esc(loKey)}" data-retest="${isRetest ? "1" : "0"}" ${isRetest ? `title="Retested LO · ${runCount} runs"` : ""}>
             <td>${userCell}</td>
             <td class="dash-time">${timeStr}</td>
             <td class="dash-subject">${esc(item.subject) || '<span class="dash-muted">—</span>'}</td>
@@ -1409,6 +1412,23 @@ function renderDashboard() {
         .join("");
 
     bindStatusDropdowns(tbody);
+    tbody.querySelectorAll(".dash-copy-btn").forEach(btn => {
+        btn.onclick = async () => {
+            const text = btn.getAttribute("data-copy") || "";
+            try {
+                await navigator.clipboard.writeText(text);
+                const icon = btn.querySelector(".material-symbols-outlined");
+                if (icon) {
+                    const prev = icon.textContent;
+                    icon.textContent = "check";
+                    setTimeout(() => { icon.textContent = prev; }, 1200);
+                }
+                toast("Link copied.");
+            } catch {
+                toast("Could not copy link.");
+            }
+        };
+    });
     tbody.querySelectorAll(".view-msg-btn").forEach(btn => {
         btn.onclick = () => openMsgModal(btn.getAttribute("data-msg"));
     });
