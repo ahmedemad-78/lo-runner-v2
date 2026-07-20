@@ -1349,7 +1349,6 @@ function renderDashboard() {
         return;
     }
 
-    let prevLoKey = null;
     tbody.innerHTML = filtered
         .map((item, idx) => {
             const escapedMsg = (item.fullMessage || "")
@@ -1365,7 +1364,6 @@ function renderDashboard() {
             const loKey = loPathKey(item);
             const runCount = loKey ? counts.get(loKey) || 1 : 1;
             const isRetest = runCount > 1;
-            prevLoKey = loKey || prevLoKey;
             const loType = loTypeFromPath(item);
             const linkCell = item.restOfLink
                 ? `<div class="dash-link-wrap">
