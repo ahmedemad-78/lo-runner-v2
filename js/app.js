@@ -76,19 +76,33 @@ function load() {
 function switchPage(id) {
     const page = document.getElementById("page-" + id);
     if (!page) return;
+
+    // Analytics is Team Leader only — block route client-side; server also enforces.
+    if (id === "analytics") {
+        const session = window.LOAuth && LOAuth.getSession();
+        if (!LOAuth.isTeamLeader(session)) {
+            toast("Access denied. Team Leader role required.", { type: "error" });
+            id = "dashboard";
+            const dash = document.getElementById("page-dashboard");
+            if (!dash) return;
+        }
+    }
+
     currentPage = id;
     document.querySelectorAll(".page").forEach(p => p.classList.remove("active"));
     document.querySelectorAll(".nav-btn[data-page]").forEach(b => b.classList.remove("active"));
-    page.classList.add("active");
+    const activePage = document.getElementById("page-" + id);
+    if (!activePage) return;
+    activePage.classList.add("active");
     const navBtn = document.querySelector(`.nav-btn[data-page="${id}"]`);
     if (navBtn) navBtn.classList.add("active");
     const nextHash = "#" + id;
     if (location.hash !== nextHash) {
-        // Keep pathname+search so GH Pages / nested paths survive refresh.
         history.replaceState(null, "", location.pathname + location.search + nextHash);
     }
     if (window.LOAuth && typeof LOAuth.rememberPage === "function") LOAuth.rememberPage(id);
     if (id === "dashboard" && typeof renderDashboard === "function") renderDashboard();
+    if (id === "analytics" && window.LOAnalytics) LOAnalytics.loadAnalytics();
     if (id === "test") {
         updateUrl();
         loadNoteForConfig();
@@ -1358,33 +1372,39 @@ function renderDashboard() {
                 .replace(/"/g, "&quot;");
             const scen = item.scenarioName || "";
             const scenCell = scen
-                ? `<span class="dash-scenario" title="${esc(scen)}">${esc(scen.length > 28 ? scen.slice(0, 28) + "…" : scen)}</span>`
+                ? `<span class="dash-scenario" title="${esc(scen)}">${esc(scen)}</span>`
                 : '<span class="dash-muted">—</span>';
             const timeStr = esc(new Date(item.timestamp).toLocaleTimeString());
             const loKey = loPathKey(item);
             const runCount = loKey ? counts.get(loKey) || 1 : 1;
             const isRetest = runCount > 1;
             const loType = loTypeFromPath(item);
-            const linkCell = item.restOfLink
+            const linkUrl = item.fullUrl || item.restOfLink || "";
+            const linkDisplay = item.fullUrl || item.restOfLink || "";
+            const openHref = item.fullUrl || (item.restOfLink && item.restOfLink.startsWith("http") ? item.restOfLink : "");
+            const linkCell = linkDisplay
                 ? `<div class="dash-link-wrap">
                     <div class="dash-link-main">
-                      <span class="dash-link" title="${esc(item.restOfLink)}">${esc(item.restOfLink)}</span>
-                      <button type="button" class="dash-copy-btn" data-copy="${esc(item.restOfLink)}" title="Copy link" aria-label="Copy link">
-                        <span class="material-symbols-outlined">content_copy</span>
-                      </button>
+                      <span class="dash-link" title="${esc(linkUrl || linkDisplay)}">${esc(linkDisplay)}</span>
+                      <div class="dash-link-actions">
+                        <button type="button" class="dash-copy-btn" data-copy="${esc(linkUrl || linkDisplay)}" title="Copy link" aria-label="Copy link">
+                          <span class="material-symbols-outlined" aria-hidden="true">content_copy</span>
+                        </button>
+                        ${openHref ? `<a class="dash-open-btn" href="${esc(openHref)}" target="_blank" rel="noopener noreferrer" title="Open in new tab" aria-label="Open link in new tab"><span class="material-symbols-outlined" aria-hidden="true">open_in_new</span></a>` : ""}
+                      </div>
                     </div>
-                    ${isRetest ? `<span class="lo-retest-badge" title="Same LO ran ${runCount} times"><span class="material-symbols-outlined">replay</span>${runCount}×</span>` : ""}
+                    ${isRetest ? `<span class="lo-retest-badge" title="Same LO ran ${runCount} times"><span class="material-symbols-outlined" aria-hidden="true">replay</span>${runCount}×</span>` : ""}
                    </div>`
                 : '<span class="dash-muted">—</span>';
             const notePreview = item.note
-                ? `<span class="dash-note-inline"><span class="dash-note-label">Note:</span> <span class="dash-note-text" title="${esc(item.note)}">${esc(item.note.length > 32 ? item.note.slice(0, 32) + "…" : item.note)}</span></span>`
+                ? `<span class="dash-note-inline"><span class="dash-note-label">Note:</span> <span class="dash-note-text" title="${esc(item.note)}">${esc(item.note)}</span></span>`
                 : "";
             const noteBtn = item.note
-                ? `<button type="button" class="dash-note-btn edit-note-btn" data-id="${item.id}" title="Edit note"><span class="material-symbols-outlined">edit</span> Edit</button>`
-                : `<button type="button" class="dash-note-btn edit-note-btn dash-note-btn--add" data-id="${item.id}"><span class="material-symbols-outlined">edit</span> Add note</button>`;
+                ? `<button type="button" class="dash-note-btn edit-note-btn" data-id="${item.id}" title="Edit note"><span class="material-symbols-outlined" aria-hidden="true">edit</span> Edit</button>`
+                : `<button type="button" class="dash-note-btn edit-note-btn dash-note-btn--add" data-id="${item.id}"><span class="material-symbols-outlined" aria-hidden="true">edit</span> Add note</button>`;
             const noteCell = `<div class="dash-note-cell">${notePreview}${noteBtn}</div>`;
             const userCell = item.user
-                ? `<span class="dash-user" title="${esc(item.user)}">${esc(item.user.length > 20 ? item.user.slice(0, 20) + "…" : item.user)}</span>`
+                ? `<span class="dash-user" title="${esc(item.user)}">${esc(item.user)}</span>`
                 : '<span class="dash-muted">—</span>';
             const rowAlt = idx % 2 === 1 ? " dash-row--alt" : "";
             /* Retest grouping kept via badge + data-lo-key only — no orange/peach row chrome */
@@ -1395,15 +1415,15 @@ function renderDashboard() {
             <td>${loTypePill(loType)}</td>
             <td class="dash-link-cell">${linkCell}</td>
             <td><button type="button" class="dash-view-btn view-msg-btn" data-msg="${escapedMsg}">
-                <span class="material-symbols-outlined">visibility</span> View</button></td>
+                <span class="material-symbols-outlined" aria-hidden="true">visibility</span> View</button></td>
             <td>${scenCell}</td>
             <td class="td-status">${renderStatusDropdown(item.id, item.status)}</td>
             <td>${noteCell}</td>
             <td class="td-actions">
-                <button type="button" class="dash-icon-btn rerun-btn" data-subject="${esc(item.subject)}" data-rest="${esc(item.restOfLink)}" data-scenario="${esc(scen)}" title="Re-run">
-                    <span class="material-symbols-outlined">replay</span></button>
-                <button type="button" class="dash-icon-btn dash-icon-btn--danger del-btn" data-id="${item.id}" title="Delete">
-                    <span class="material-symbols-outlined">delete</span></button>
+                <button type="button" class="dash-icon-btn rerun-btn" data-subject="${esc(item.subject)}" data-rest="${esc(item.restOfLink)}" data-scenario="${esc(scen)}" title="Re-run" aria-label="Re-run this LO">
+                    <span class="material-symbols-outlined" aria-hidden="true">replay</span></button>
+                <button type="button" class="dash-icon-btn dash-icon-btn--danger del-btn" data-id="${item.id}" title="Delete" aria-label="Delete entry">
+                    <span class="material-symbols-outlined" aria-hidden="true">delete</span></button>
             </td>
         </tr>`;
         })
@@ -2008,6 +2028,9 @@ document.addEventListener("DOMContentLoaded", async () => {
     updateUrl();
     loadNoteForConfig();
     wireTeamUi(session);
+    const analyticsNav = document.getElementById("navAnalyticsBtn");
+    if (analyticsNav) analyticsNav.hidden = !LOAuth.isTeamLeader(session);
+    if (window.LOAnalytics) LOAnalytics.wireAnalyticsUi();
 
     // Never show stale modals after login/refresh.
     document.querySelectorAll(".modal-overlay.open").forEach(m => m.classList.remove("open"));
@@ -2018,15 +2041,16 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     const hash = (location.hash || "").replace(/^#/, "");
     // Fresh login always lands on #dashboard. Refresh mid-session keeps the hash.
-    const startPage =
-        hash === "scenarios" || hash === "test" || hash === "dashboard"
+    let startPage =
+        hash === "scenarios" || hash === "test" || hash === "dashboard" || hash === "analytics"
             ? hash
             : "dashboard";
+    if (startPage === "analytics" && !LOAuth.isTeamLeader(session)) startPage = "dashboard";
     switchPage(startPage);
 
     window.addEventListener("hashchange", () => {
         const h = (location.hash || "").replace(/^#/, "");
-        if (h === "scenarios" || h === "test" || h === "dashboard") switchPage(h);
+        if (h === "scenarios" || h === "test" || h === "dashboard" || h === "analytics") switchPage(h);
     });
 
     const fireBtn = document.getElementById("fireBtn");

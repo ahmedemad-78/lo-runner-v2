@@ -22,7 +22,7 @@
 
   function rememberPage(page) {
     try {
-      if (page && /^(dashboard|test|scenarios)$/.test(page)) {
+      if (page && /^(dashboard|test|scenarios|analytics)$/.test(page)) {
         localStorage.setItem(LAST_PAGE_KEY, page);
       }
     } catch { /* ignore */ }
@@ -31,7 +31,7 @@
   function lastPage() {
     try {
       const saved = localStorage.getItem(LAST_PAGE_KEY);
-      if (saved && /^(dashboard|test|scenarios)$/.test(saved)) return saved;
+      if (saved && /^(dashboard|test|scenarios|analytics)$/.test(saved)) return saved;
     } catch { /* ignore */ }
     return null;
   }

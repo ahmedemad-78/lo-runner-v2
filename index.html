@@ -11,21 +11,21 @@
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect x='1' y='1' width='22' height='22' rx='6' fill='%230a6b63'/%3E%3Crect x='5' y='7' width='14' height='11' rx='1.5' fill='none' stroke='white' stroke-width='1.5'/%3E%3Cpath d='M8.5 13.5l2 2 4.5-5' fill='none' stroke='white' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
   <style>
     :root {
-      --ink: #12181c;
-      --muted: #4d5a63;
-      --faint: #84929c;
-      --line: rgba(18, 24, 28, 0.10);
-      --line-strong: rgba(18, 24, 28, 0.16);
-      --primary: #0a6b63;
-      --primary-deep: #08544e;
-      --primary-soft: rgba(10, 107, 99, 0.10);
-      --primary-ring: rgba(10, 107, 99, 0.28);
-      --panel: rgba(255, 255, 255, 0.86);
+      --ink: #0F172A;
+      --muted: #64748B;
+      --faint: #94A3B8;
+      --line: #E2E8F0;
+      --line-strong: #CBD5E1;
+      --primary: #0F766E;
+      --primary-deep: #115E59;
+      --primary-soft: rgba(15, 118, 110, 0.10);
+      --primary-ring: rgba(15, 118, 110, 0.28);
+      --panel: #ffffff;
       --panel-solid: #ffffff;
-      --danger: #b42318;
-      --radius: 14px;
-      --shadow: 0 18px 48px rgba(18, 24, 28, 0.12);
-      --display: "Space Grotesk", "Plus Jakarta Sans", sans-serif;
+      --danger: #DC2626;
+      --radius: 10px;
+      --shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+      --display: "Plus Jakarta Sans", "Segoe UI", sans-serif;
       --sans: "Plus Jakarta Sans", "Segoe UI", sans-serif;
       --mono: "IBM Plex Mono", ui-monospace, monospace;
     }
@@ -36,10 +36,7 @@
       min-height: 100vh;
       font-family: var(--sans);
       color: var(--ink);
-      background:
-        radial-gradient(1200px 640px at 12% -8%, rgba(10, 107, 99, 0.16), transparent 55%),
-        radial-gradient(900px 520px at 92% 8%, rgba(18, 24, 28, 0.06), transparent 50%),
-        linear-gradient(165deg, #e8ecef 0%, #f4f6f7 48%, #eef2f1 100%);
+      background: #F8FAFC;
       -webkit-font-smoothing: antialiased;
     }
 
@@ -55,23 +52,11 @@
       align-items: center;
       padding: clamp(40px, 6vw, 72px);
       overflow: hidden;
-      color: #f2f7f6;
-      background:
-        linear-gradient(155deg, rgba(8, 84, 78, 0.92) 0%, rgba(10, 107, 99, 0.88) 42%, rgba(18, 24, 28, 0.90) 100%),
-        radial-gradient(600px 400px at 20% 20%, rgba(255,255,255,0.12), transparent 60%);
+      color: #F8FAFC;
+      background: #0F766E;
     }
 
-    .aside::before {
-      content: "";
-      position: absolute;
-      inset: 0;
-      background:
-        linear-gradient(rgba(255,255,255,0.04) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(255,255,255,0.04) 1px, transparent 1px);
-      background-size: 28px 28px;
-      mask-image: radial-gradient(ellipse at 30% 40%, black 20%, transparent 75%);
-      pointer-events: none;
-    }
+    .aside::before { display: none; }
 
     .aside-inner {
       position: relative;

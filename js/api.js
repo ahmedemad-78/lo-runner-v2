@@ -137,6 +137,15 @@
     return global.LOSupabase.rpc("clear_scenarios", { p_access_code: code() });
   }
 
+  async function teamAnalytics({ from, to, subject } = {}) {
+    return global.LOSupabase.rpc("team_analytics", {
+      p_access_code: code(),
+      p_from: from || null,
+      p_to: to || null,
+      p_subject: subject || null
+    });
+  }
+
   function generateAccessCode(length) {
     const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
     const len = length || 7;
@@ -159,6 +168,7 @@
     createScenario,
     deleteScenario,
     clearScenarios,
+    teamAnalytics,
     listTeam,
     createTeamMember,
     updateTeamMember,
