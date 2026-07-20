@@ -203,8 +203,10 @@ function toggleDark() {
     localStorage.setItem("darkMode", isDark ? "1" : "0");
     const icon = document.getElementById("darkIcon");
     if (icon) icon.textContent = isDark ? "light_mode" : "dark_mode";
-    document.getElementById("darkLabel").textContent = isDark ? "Light mode" : "Dark mode";
+    const label = document.getElementById("darkLabel");
+    if (label) label.textContent = isDark ? "Light mode" : "Dark mode";
 }
+window.toggleDark = toggleDark;
 
 function applyDark() {
     if (localStorage.getItem("darkMode") === "1") {
@@ -1230,7 +1232,7 @@ function getFiltered() {
     return { rows: sortGroupedByLo(rows, counts), counts };
 }
 
-function renderDashboard()function renderDashboard() {
+function renderDashboard() {
     closeAllStatusDropdowns();
     const total = testHistory.length;
     const subjects = new Set(testHistory.map(h => h.subject).filter(Boolean));
