@@ -109,8 +109,8 @@
                         <button type="button" class="btn-stitch btn-stitch--outline" id="uploadJsonBtn" title="Import from JSON or CSV">
                             <span class="material-symbols-outlined">upload</span> Import
                         </button>
-                        <button type="button" class="btn-stitch btn-stitch--danger" id="clearAllBtn" title="Delete all test history">
-                            <span class="material-symbols-outlined">delete</span> Clear all
+                        <button type="button" class="btn-stitch btn-stitch--danger-solid" id="clearAllBtn" title="Delete all test history">
+                            <span class="material-symbols-outlined">delete_forever</span> Clear all
                         </button>
                     </div>
                 </div>
@@ -189,6 +189,12 @@
                         <select id="filterSubject" class="filter-select filter-select--stitch">
                             <option value="ALL">All Subjects</option>
                         </select>
+                        <select id="filterType" class="filter-select filter-select--stitch" title="LO type">
+                            <option value="ALL">Type: All</option>
+                            <option value="interactive">Interactive</option>
+                            <option value="game">Game</option>
+                            <option value="other">Other</option>
+                        </select>
                         <select id="filterStatus" class="filter-select filter-select--stitch">
                             <option value="ALL">Status: All</option>
                             <option value="Approve">Approve</option>
@@ -197,15 +203,19 @@
                         </select>
                         <select id="filterRetest" class="filter-select filter-select--stitch" title="Group by LO path">
                             <option value="ALL">Runs: All</option>
-                            <option value="RETEST">Retested LOs</option>
+                            <option value="RETEST">Retested only</option>
                             <option value="UNIQUE">Unique only</option>
                         </select>
                         <div class="filter-search-wrap">
                             <input type="text" id="filterSearch" class="filter-input filter-input--stitch filter-input--search" placeholder="Search subject, link, note…" autocomplete="off" spellcheck="false">
                         </div>
-                        <button type="button" class="filter-clear-btn" id="clearFiltersBtn" title="Clear all filters">Clear</button>
-                        <span class="retest-hint" id="retestHint" hidden></span>
+                        <button type="button" class="filter-clear-btn" id="clearFiltersBtn" title="Reset all filters">
+                            <span class="material-symbols-outlined">filter_alt_off</span>
+                            Reset
+                        </button>
                     </div>
+
+                    <div class="retest-banner" id="retestHint" hidden></div>
 
                     <div class="table-wrap table-wrap--stitch">
                         <table class="dash-table">
@@ -214,6 +224,7 @@
                                     <th>User</th>
                                     <th>Time</th>
                                     <th>Subject</th>
+                                    <th>Type</th>
                                     <th>Link</th>
                                     <th>Message</th>
                                     <th>Scenario</th>
@@ -223,7 +234,7 @@
                                 </tr>
                             </thead>
                             <tbody id="historyTbody">
-                                <tr class="empty-row"><td colspan="9">No tests recorded yet — go to Test Runner and fire a URL.</td></tr>
+                                <tr class="empty-row"><td colspan="10">No tests recorded yet — go to Test Runner and fire a URL.</td></tr>
                             </tbody>
                         </table>
                     </div>

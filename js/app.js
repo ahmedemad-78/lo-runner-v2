@@ -14,6 +14,7 @@ let currentEditingId = null;
 let currentFilterUser = "ALL";
 let currentFilterSubject = "ALL";
 let currentFilterStatus = "ALL";
+let currentFilterType = "ALL"; // ALL | interactive | game | other
 let currentFilterRetest = "ALL"; // ALL | RETEST | UNIQUE
 let currentSearchText = "";
 
@@ -1191,6 +1192,21 @@ function loPathKey(item) {
         .toLowerCase();
 }
 
+function loTypeFromPath(item) {
+    const p = loPathKey(item);
+    if (!p) return "other";
+    const first = p.split("/").filter(Boolean)[0] || "";
+    if (first === "game" || /(^|\/)game(\/|$)/.test(p)) return "game";
+    if (first === "interactive" || /(^|\/)interactive(\/|$)/.test(p)) return "interactive";
+    return "other";
+}
+
+function loTypePill(type) {
+    const icons = { interactive: "touch_app", game: "sports_esports", other: "category" };
+    const label = type === "interactive" ? "Interactive" : type === "game" ? "Game" : "Other";
+    return `<span class="lo-type-pill lo-type-pill--${type}"><span class="material-symbols-outlined">${icons[type] || icons.other}</span>${label}</span>`;
+}
+
 function buildLoRunCounts(rows) {
     const counts = new Map();
     for (const item of rows) {
@@ -1220,6 +1236,7 @@ function getFiltered() {
         if (currentFilterUser !== "ALL" && item.user !== currentFilterUser) return false;
         if (currentFilterSubject !== "ALL" && item.subject !== currentFilterSubject) return false;
         if (currentFilterStatus !== "ALL" && item.status !== currentFilterStatus) return false;
+        if (currentFilterType !== "ALL" && loTypeFromPath(item) !== currentFilterType) return false;
         if (currentSearchText.trim()) {
             const q = currentSearchText.toLowerCase();
             const scen = (item.scenarioName || "").toLowerCase();
@@ -1230,7 +1247,8 @@ function getFiltered() {
                     item.restOfLink || "",
                     item.note || "",
                     item.fullMessage || "",
-                    scen
+                    scen,
+                    loTypeFromPath(item)
                 ].some(f => f.toLowerCase().includes(q))
             ) {
                 return false;
@@ -1255,6 +1273,57 @@ function getFiltered() {
     return { rows: sortGroupedByLo(rows, counts), counts };
 }
 
+function shortLoLabel(path) {
+    const parts = String(path || "").split("/").filter(Boolean);
+    if (parts.length <= 2) return path;
+    return parts.slice(-2).join("/");
+}
+
+function renderRetestBanner(allCounts) {
+    const retestHint = document.getElementById("retestHint");
+    if (!retestHint) return;
+    const pairs = [...allCounts.entries()]
+        .filter(([, n]) => n > 1)
+        .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+    const retestGroups = pairs.length;
+    const retestRuns = pairs.reduce((sum, [, n]) => sum + n, 0);
+    retestHint.hidden = retestGroups === 0;
+    if (!retestGroups) {
+        retestHint.innerHTML = "";
+        return;
+    }
+    const chips = pairs.slice(0, 5).map(([path, n]) =>
+        `<button type="button" class="retest-chip" data-lo-path="${esc(path)}" title="${esc(path)} · ${n} runs">
+            <span class="retest-chip-path">${esc(shortLoLabel(path))}</span>
+            <span class="retest-chip-count">${n}×</span>
+        </button>`
+    ).join("");
+    const more = pairs.length > 5
+        ? `<span class="retest-banner-sub">+${pairs.length - 5} more</span>`
+        : "";
+    retestHint.innerHTML = `
+        <div class="retest-banner-icon" aria-hidden="true"><span class="material-symbols-outlined">replay_circle_filled</span></div>
+        <div class="retest-banner-copy">
+            <div class="retest-banner-title">${retestGroups} LO retested</div>
+            <div class="retest-banner-sub">${retestRuns} total runs · click a chip to focus</div>
+        </div>
+        <div class="retest-chips">${chips}${more}</div>
+    `;
+    retestHint.querySelectorAll(".retest-chip").forEach(btn => {
+        btn.onclick = () => {
+            const path = btn.dataset.loPath || "";
+            currentFilterRetest = "RETEST";
+            const filterRetest = document.getElementById("filterRetest");
+            if (filterRetest) filterRetest.value = "RETEST";
+            currentSearchText = path;
+            const search = document.getElementById("filterSearch");
+            if (search) search.value = path;
+            renderDashboard();
+            toast(`Focused on retested LO · ${shortLoLabel(path)}`);
+        };
+    });
+}
+
 function renderDashboard() {
     closeAllStatusDropdowns();
     const total = testHistory.length;
@@ -1273,25 +1342,17 @@ function renderDashboard() {
 
     const { rows: filtered, counts } = getFiltered();
     const tbody = document.getElementById("historyTbody");
-    const retestHint = document.getElementById("retestHint");
-    if (retestHint) {
-        const allCounts = buildLoRunCounts(testHistory);
-        const retestGroups = [...allCounts.values()].filter(n => n > 1).length;
-        const retestRuns = [...allCounts.entries()].reduce((sum, [, n]) => sum + (n > 1 ? n : 0), 0);
-        retestHint.hidden = retestGroups === 0;
-        retestHint.innerHTML = retestGroups
-            ? `<span class="retest-swatch" aria-hidden="true"></span> ${retestGroups} LO retested · ${retestRuns} runs`
-            : "";
-    }
+    renderRetestBanner(buildLoRunCounts(testHistory));
 
     if (!filtered.length) {
-        tbody.innerHTML = '<tr class="empty-row"><td colspan="9">No tests match the current filters.</td></tr>';
+        tbody.innerHTML = '<tr class="empty-row"><td colspan="10">No tests match the current filters.</td></tr>';
         return;
     }
 
+    let prevLoKey = null;
     tbody.innerHTML = filtered
         .map((item, idx) => {
-            const escapedMsg = item.fullMessage
+            const escapedMsg = (item.fullMessage || "")
                 .replace(/&/g, "&amp;")
                 .replace(/</g, "&lt;")
                 .replace(/>/g, "&gt;")
@@ -1304,10 +1365,13 @@ function renderDashboard() {
             const loKey = loPathKey(item);
             const runCount = loKey ? counts.get(loKey) || 1 : 1;
             const isRetest = runCount > 1;
+            const isGroupStart = isRetest && loKey !== prevLoKey;
+            prevLoKey = loKey || prevLoKey;
+            const loType = loTypeFromPath(item);
             const linkCell = item.restOfLink
                 ? `<div class="dash-link-wrap">
                     <span class="dash-link" title="${esc(item.restOfLink)}">${esc(item.restOfLink)}</span>
-                    ${isRetest ? `<span class="lo-retest-badge" title="Same LO ran ${runCount} times">×${runCount}</span>` : ""}
+                    ${isRetest ? `<span class="lo-retest-badge" title="Same LO ran ${runCount} times"><span class="material-symbols-outlined">replay</span>${runCount}×</span>` : ""}
                    </div>`
                 : '<span class="dash-muted">—</span>';
             const notePreview = item.note
@@ -1322,10 +1386,12 @@ function renderDashboard() {
                 : '<span class="dash-muted">—</span>';
             const rowAlt = idx % 2 === 1 ? " dash-row--alt" : "";
             const rowRetest = isRetest ? " dash-row--retest" : "";
-            return `<tr class="dash-row${rowAlt}${rowRetest}" data-lo-key="${esc(loKey)}" ${isRetest ? `title="Retested LO · ${runCount} runs"` : ""}>
+            const rowStart = isGroupStart ? " dash-row--retest-start" : "";
+            return `<tr class="dash-row${rowAlt}${rowRetest}${rowStart}" data-lo-key="${esc(loKey)}" ${isRetest ? `title="Retested LO · ${runCount} runs"` : ""}>
             <td>${userCell}</td>
             <td class="dash-time">${timeStr}</td>
             <td class="dash-subject">${esc(item.subject) || '<span class="dash-muted">—</span>'}</td>
+            <td>${loTypePill(loType)}</td>
             <td class="dash-link-cell">${linkCell}</td>
             <td><button type="button" class="dash-view-btn view-msg-btn" data-msg="${escapedMsg}">
                 <span class="material-symbols-outlined">visibility</span> View</button></td>
@@ -2006,6 +2072,8 @@ document.addEventListener("DOMContentLoaded", async () => {
         filterUser.onchange = e => { currentFilterUser = e.target.value; renderDashboard(); };
         document.getElementById("filterSubject").onchange = e => { currentFilterSubject = e.target.value; renderDashboard(); };
         document.getElementById("filterStatus").onchange  = e => { currentFilterStatus  = e.target.value; renderDashboard(); };
+        const filterTypeEl = document.getElementById("filterType");
+        if (filterTypeEl) filterTypeEl.onchange = e => { currentFilterType = e.target.value; renderDashboard(); };
         const filterRetestEl = document.getElementById("filterRetest");
         if (filterRetestEl) filterRetestEl.onchange = e => { currentFilterRetest = e.target.value; renderDashboard(); };
         document.getElementById("filterSearch").oninput   = e => { currentSearchText    = e.target.value; renderDashboard(); };
@@ -2013,11 +2081,14 @@ document.addEventListener("DOMContentLoaded", async () => {
             currentFilterUser    = "ALL";
             currentFilterSubject = "ALL";
             currentFilterStatus  = "ALL";
+            currentFilterType    = "ALL";
             currentFilterRetest  = "ALL";
             currentSearchText    = "";
             document.getElementById("filterUser").value    = "ALL";
             document.getElementById("filterSubject").value = "ALL";
             document.getElementById("filterStatus").value  = "ALL";
+            const filterTypeClear = document.getElementById("filterType");
+            if (filterTypeClear) filterTypeClear.value = "ALL";
             const filterRetestClear = document.getElementById("filterRetest");
             if (filterRetestClear) filterRetestClear.value = "ALL";
             document.getElementById("filterSearch").value  = "";
