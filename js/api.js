@@ -96,6 +96,47 @@
     });
   }
 
+  function mapScenario(row) {
+    if (!row) return null;
+    return {
+      id: row.id,
+      user_id: row.user_id,
+      user: row.username || "",
+      name: row.name || "",
+      subject: row.subject || "",
+      restOfLink: row.path || "",
+      steps: Array.isArray(row.steps) ? row.steps : [],
+      createdAt: row.created_at || new Date().toISOString()
+    };
+  }
+
+  async function listScenarios() {
+    const rows = await global.LOSupabase.rpc("list_scenarios", { p_access_code: code() });
+    return (rows || []).map(mapScenario);
+  }
+
+  async function createScenario(payload) {
+    const row = await global.LOSupabase.rpc("create_scenario", {
+      p_access_code: code(),
+      p_name: payload.name || "",
+      p_subject: payload.subject || "",
+      p_path: payload.restOfLink || payload.path || "",
+      p_steps: payload.steps || []
+    });
+    return mapScenario(row);
+  }
+
+  async function deleteScenario(scenarioId) {
+    return global.LOSupabase.rpc("delete_scenario", {
+      p_access_code: code(),
+      p_scenario_id: scenarioId
+    });
+  }
+
+  async function clearScenarios() {
+    return global.LOSupabase.rpc("clear_scenarios", { p_access_code: code() });
+  }
+
   function generateAccessCode(length) {
     const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
     const len = length || 7;
@@ -113,6 +154,11 @@
     updateTask,
     deleteTask,
     clearTasks,
+    mapScenario,
+    listScenarios,
+    createScenario,
+    deleteScenario,
+    clearScenarios,
     listTeam,
     createTeamMember,
     updateTeamMember,

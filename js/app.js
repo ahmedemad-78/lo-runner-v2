@@ -34,7 +34,8 @@ function scenarioNameInputEl() {
 // ═══════════════════════════════════════════
 function loadLocalPrefs() {
     try { configNotes = JSON.parse(localStorage.getItem(NOTES_KEY)) || {}; } catch { configNotes = {}; }
-    try { scenarios = JSON.parse(localStorage.getItem(SCENARIOS_KEY)) || []; } catch { scenarios = []; }
+    // Scenarios are server-backed; do not hydrate from shared localStorage.
+    scenarios = [];
 }
 
 async function loadTasksFromServer() {
@@ -44,12 +45,24 @@ async function loadTasksFromServer() {
         console.error(err);
         const msg = String(err && err.message || "").toLowerCase();
         if (/invalid|unauthorized|access code|not found|permission|denied/.test(msg)) {
-            LOAuth.logout(LOAuth.loginHref((location.hash || "").replace(/^#/, "")));
+            LOAuth.logout(LOAuth.loginHref());
             return;
         }
         testHistory = [];
         toast(err.message || "Could not load tasks from server.");
     }
+}
+
+async function loadScenariosFromServer() {
+    try {
+        scenarios = await LOApi.listScenarios();
+    } catch (err) {
+        console.error(err);
+        scenarios = [];
+        toast(err.message || "Could not load scenarios.");
+    }
+    updateScenariosBadge();
+    if (currentPage === "scenarios") renderScenarios();
 }
 
 function load() {
@@ -132,9 +145,9 @@ function saveNotes() {
 }
 
 function saveScenarios() {
-    localStorage.setItem(SCENARIOS_KEY, JSON.stringify(scenarios));
+    // Server is source of truth; local list is UI-only.
     updateScenariosBadge();
-    renderScenarios();
+    if (currentPage === "scenarios") renderScenarios();
 }
 
 // ═══════════════════════════════════════════
@@ -1014,10 +1027,14 @@ function executeContextualClearAll() {
         toast("Test runner workspace cleared.");
     }
     else if (currentPage === "scenarios") {
-        if (!confirm("Permanently delete all saved scenarios?")) return;
-        scenarios = [];
-        saveScenarios();
-        toast("All scenarios deleted.");
+        if (!confirm("Permanently delete all saved scenarios you can access?")) return;
+        LOApi.clearScenarios()
+            .then(() => {
+                scenarios = [];
+                saveScenarios();
+                toast("All scenarios deleted.");
+            })
+            .catch(err => toast(err.message || "Could not clear scenarios."));
     }
 }
 
@@ -1046,7 +1063,7 @@ function renderSteps() {
         .join("");
 }
 
-function saveScenario() {
+async function saveScenario() {
     const name = scenarioNameInputEl().value.trim();
     if (!name) {
         toast("Enter a scenario name first.");
@@ -1056,14 +1073,20 @@ function saveScenario() {
         toast("No steps to save — record some steps first.");
         return;
     }
-    const sc = {
-        id: Date.now() + "-" + Math.random().toString(36).substr(2, 6),
+    const payload = {
         name,
         steps: [...recordingSteps],
         subject: subjectSel().value.trim(),
-        restOfLink: restInput().value.trim(),
-        createdAt: new Date().toISOString()
+        restOfLink: restInput().value.trim()
     };
+    let sc;
+    try {
+        sc = await LOApi.createScenario(payload);
+    } catch (err) {
+        console.error(err);
+        toast(err.message || "Could not save scenario.");
+        return;
+    }
     scenarios.unshift(sc);
     saveScenarios();
 
@@ -1432,26 +1455,26 @@ function renderScenarios() {
                 <span class="scenario-card-name">${esc(sc.name)}</span>
                 <span class="scenario-card-link-badge">${esc(sc.restOfLink || "—")}</span>
             </div>
-            <div class="scenario-card-meta">${sc.steps.length} steps · ${esc(sc.subject || "no subject")} · ${new Date(sc.createdAt).toLocaleDateString()}</div>
+            <div class="scenario-card-meta">${(sc.steps || []).length} steps · ${esc(sc.subject || "no subject")}${sc.user ? ` · ${esc(sc.user)}` : ""} · ${new Date(sc.createdAt).toLocaleDateString()}</div>
             <div class="scenario-steps-preview">
-                ${sc.steps.slice(0, 4).map((s, i) => `
+                ${(sc.steps || []).slice(0, 4).map((s, i) => `
                     <div class="scenario-step-preview">
                         <span class="step-idx">${i + 1}.</span>
                         <span>${esc(s.desc)}</span>
                     </div>
                 `).join("")}
-                ${sc.steps.length > 4 ? `<div style="color:var(--text3); font-size:0.72rem; padding:4px 0;">+${sc.steps.length - 4} more steps…</div>` : ""}
+                ${(sc.steps || []).length > 4 ? `<div style="color:var(--text3); font-size:0.72rem; padding:4px 0;">+${(sc.steps || []).length - 4} more steps…</div>` : ""}
             </div>
             <div class="scenario-card-footer">
-                <button type="button" class="btn btn-scenario btn-scenario-view view-scenario-btn" data-id="${sc.id}">
+                <button type="button" class="btn btn-scenario btn-scenario-view view-scenario-btn" data-id="${esc(sc.id)}">
                     <span class="material-symbols-outlined">visibility</span>
                     View
                 </button>
-                <button type="button" class="btn btn-scenario btn-scenario-load load-scenario-btn" data-id="${sc.id}">
+                <button type="button" class="btn btn-scenario btn-scenario-load load-scenario-btn" data-id="${esc(sc.id)}">
                     <span class="material-symbols-outlined">play_arrow</span>
                     Load
                 </button>
-                <button type="button" class="btn btn-scenario btn-scenario-del del-scenario-btn" data-id="${sc.id}" title="Delete scenario" aria-label="Delete scenario">
+                <button type="button" class="btn btn-scenario btn-scenario-del del-scenario-btn" data-id="${esc(sc.id)}" title="Delete scenario" aria-label="Delete scenario">
                     <span class="material-symbols-outlined">delete</span>
                 </button>
             </div>
@@ -1462,12 +1485,12 @@ function renderScenarios() {
 
     grid.querySelectorAll(".view-scenario-btn").forEach(btn => {
         btn.onclick = () => {
-            const sc = scenarios.find(s => s.id === btn.dataset.id);
+            const sc = scenarios.find(s => String(s.id) === String(btn.dataset.id));
             if (!sc) return;
             document.getElementById("scenarioModalTitle").textContent = sc.name;
             document.getElementById("scenarioModalSteps").innerHTML = `
-                <div style="font-size:0.75rem; color:var(--text3); font-family:var(--mono); margin-bottom:14px;">${sc.steps.length} steps · ${sc.subject || "—"} · ${sc.restOfLink || "—"}</div>
-                ${sc.steps.map((s, i) => `
+                <div style="font-size:0.75rem; color:var(--text3); font-family:var(--mono); margin-bottom:14px;">${(sc.steps || []).length} steps · ${esc(sc.user || "")} · ${esc(sc.subject || "—")} · ${esc(sc.restOfLink || "—")}</div>
+                ${(sc.steps || []).map((s, i) => `
                     <div class="step-item ${s.auto ? "step-auto" : ""}">
                         <div class="step-num">${i + 1}</div>
                         <div class="step-desc">${esc(s.desc)}</div>
@@ -1480,17 +1503,24 @@ function renderScenarios() {
     });
     grid.querySelectorAll(".load-scenario-btn").forEach(btn => {
         btn.onclick = () => {
-            const sc = scenarios.find(s => s.id === btn.dataset.id);
+            const sc = scenarios.find(s => String(s.id) === String(btn.dataset.id));
             if (!sc) return;
             loadScenarioIntoRunner(sc);
-            toast(`Scenario "${sc.name}" loaded (${sc.steps.length} steps).`);
+            toast(`Scenario "${sc.name}" loaded (${(sc.steps || []).length} steps).`);
         };
     });
     grid.querySelectorAll(".del-scenario-btn").forEach(btn => {
-        btn.onclick = () => {
-            scenarios = scenarios.filter(s => s.id !== btn.dataset.id);
-            saveScenarios();
-            toast("Scenario deleted.");
+        btn.onclick = async () => {
+            const id = btn.dataset.id;
+            if (!confirm("Delete this scenario?")) return;
+            try {
+                await LOApi.deleteScenario(id);
+                scenarios = scenarios.filter(s => String(s.id) !== String(id));
+                saveScenarios();
+                toast("Scenario deleted.");
+            } catch (err) {
+                toast(err.message || "Could not delete scenario.");
+            }
         };
     });
 }
@@ -1649,27 +1679,34 @@ function exportScenarios() {
     toast("Scenarios exported");
 }
 
-function importScenarios(file) {
-    const r = new FileReader();
-    r.onload = e => {
-        try {
-            const arr = JSON.parse(e.target.result);
-            if (!Array.isArray(arr)) throw new Error("Must be array.");
-            let added = 0;
-            for (const sc of arr) {
-                if (!sc.id) sc.id = Date.now() + "-" + Math.random().toString(36).substr(2, 6) + "-" + added;
-                if (!scenarios.some(s => s.id === sc.id)) {
-                    scenarios.push(sc);
-                    added++;
-                }
+async function importScenarios(file) {
+    try {
+        const text = await file.text();
+        const arr = JSON.parse(text);
+        if (!Array.isArray(arr)) throw new Error("Must be array.");
+        let added = 0;
+        let failed = 0;
+        for (const raw of arr) {
+            try {
+                const created = await LOApi.createScenario({
+                    name: raw.name || "Imported scenario",
+                    subject: raw.subject || "",
+                    restOfLink: raw.restOfLink || raw.path || "",
+                    steps: Array.isArray(raw.steps) ? raw.steps : []
+                });
+                scenarios.unshift(created);
+                added++;
+            } catch (err) {
+                console.error(err);
+                failed++;
             }
-            saveScenarios();
-            toast(`Imported ${added} scenarios`);
-        } catch (err) {
-            alert("Invalid file: " + err.message);
         }
-    };
-    r.readAsText(file);
+        saveScenarios();
+        if (failed) toast(`Imported ${added}, failed ${failed}.`);
+        else toast(`Imported ${added} scenarios`);
+    } catch (err) {
+        toast(err.message || "Invalid file.");
+    }
 }
 
 function dl(blob, name) {
@@ -1863,7 +1900,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         session = (await LOAuth.refreshSession()) || session;
     } catch (err) {
         console.error(err);
-        LOAuth.logout(LOAuth.loginHref((location.hash || "").replace(/^#/, "")));
+        LOAuth.logout(LOAuth.loginHref());
         return;
     }
 
@@ -1874,12 +1911,13 @@ document.addEventListener("DOMContentLoaded", async () => {
     const dashSub = document.getElementById("dashSubtitle");
     if (dashSub) {
         dashSub.textContent = LOAuth.isTeamLeader(session)
-            ? "All tasks from every tester"
-            : "Only your submitted tasks";
+            ? "All tasks from every tester · all saved scenarios"
+            : "Only your submitted tasks · only your scenarios";
     }
 
     load();
     await loadTasksFromServer();
+    await loadScenariosFromServer();
     applyDark();
     updateFilterOptions();
     updateScenariosBadge();
@@ -1887,15 +1925,19 @@ document.addEventListener("DOMContentLoaded", async () => {
     loadNoteForConfig();
     wireTeamUi(session);
 
+    // Never show stale modals after login/refresh.
+    document.querySelectorAll(".modal-overlay.open").forEach(m => m.classList.remove("open"));
+
     document.querySelectorAll(".nav-btn[data-page]").forEach(btn =>
         btn.addEventListener("click", () => switchPage(btn.dataset.page))
     );
 
     const hash = (location.hash || "").replace(/^#/, "");
+    // Fresh login always lands on #dashboard. Refresh mid-session keeps the hash.
     const startPage =
         hash === "scenarios" || hash === "test" || hash === "dashboard"
             ? hash
-            : LOAuth.lastPage() || "dashboard";
+            : "dashboard";
     switchPage(startPage);
 
     window.addEventListener("hashchange", () => {

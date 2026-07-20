@@ -3,6 +3,9 @@
   const SESSION_KEY = "lo_runner_session_v2";
   const RETURN_KEY = "lo_runner_return_v1";
   const LAST_PAGE_KEY = "lo_runner_last_page_v1";
+  const NOTES_KEY = "lo_config_notes_v2";
+  const SCENARIOS_KEY = "lo_scenarios_v1";
+  const DEVICE_USER_KEY = "lo_device_user_v1";
 
   function appHref(hash) {
     const base = new URL("./app.html", window.location.href);
@@ -13,14 +16,8 @@
     return base.href;
   }
 
-  function loginHref(returnHash) {
-    const base = new URL("./index.html", window.location.href);
-    if (returnHash) {
-      try {
-        sessionStorage.setItem(RETURN_KEY, String(returnHash).replace(/^#/, ""));
-      } catch { /* ignore */ }
-    }
-    return base.href;
+  function loginHref() {
+    return new URL("./index.html", window.location.href).href;
   }
 
   function rememberPage(page) {
@@ -39,13 +36,16 @@
     return null;
   }
 
-  function consumeReturnHash() {
+  /** Wipe local workspace so next login feels brand new. */
+  function clearWorkspace() {
     try {
-      const saved = sessionStorage.getItem(RETURN_KEY);
+      localStorage.removeItem(LAST_PAGE_KEY);
+      localStorage.removeItem(RETURN_KEY);
+      localStorage.removeItem(NOTES_KEY);
+      localStorage.removeItem(SCENARIOS_KEY);
+      localStorage.removeItem(DEVICE_USER_KEY);
       sessionStorage.removeItem(RETURN_KEY);
-      if (saved && /^(dashboard|test|scenarios)$/.test(saved)) return saved;
     } catch { /* ignore */ }
-    return null;
   }
 
   function getSession() {
@@ -71,9 +71,7 @@
   function requireSession(redirectTo) {
     const session = getSession();
     if (!session) {
-      const hash = (window.location.hash || "").replace(/^#/, "");
-      const target = redirectTo || loginHref(hash || lastPage());
-      window.location.replace(target);
+      window.location.replace(redirectTo || loginHref());
       return null;
     }
     return session;
@@ -88,24 +86,32 @@
       p_access_code: String(accessCode || "").trim().toLowerCase()
     });
     if (!data || !data.id) throw new Error("Login failed.");
+    // New login = fresh workspace (notes/local scenarios/last tab).
+    clearWorkspace();
     setSession(data);
     return data;
   }
 
-  /** Re-validate access code still works after refresh. */
   async function refreshSession() {
     const session = getSession();
     if (!session || !session.access_code) return null;
     try {
-      return await loginWithAccessCode(session.access_code);
+      const data = await global.LOSupabase.rpc("login", {
+        p_access_code: String(session.access_code || "").trim().toLowerCase()
+      });
+      if (!data || !data.id) throw new Error("Login failed.");
+      setSession(data);
+      return data;
     } catch (err) {
       clearSession();
+      clearWorkspace();
       throw err;
     }
   }
 
   function logout(redirectTo) {
     clearSession();
+    clearWorkspace();
     window.location.replace(redirectTo || loginHref());
   }
 
@@ -113,8 +119,9 @@
     return getSession()?.access_code || "";
   }
 
+  /** After login always open Dashboard (fresh session). */
   function goToApp(hash) {
-    const preferred = hash || consumeReturnHash() || lastPage() || "dashboard";
+    const preferred = hash || "dashboard";
     window.location.replace(appHref(preferred));
   }
 
@@ -125,6 +132,7 @@
     getSession,
     setSession,
     clearSession,
+    clearWorkspace,
     requireSession,
     isTeamLeader,
     loginWithAccessCode,
@@ -135,7 +143,6 @@
     loginHref,
     rememberPage,
     lastPage,
-    consumeReturnHash,
     goToApp
   };
 })(window);
