@@ -42,6 +42,11 @@ async function loadTasksFromServer() {
         testHistory = await LOApi.listTasks();
     } catch (err) {
         console.error(err);
+        const msg = String(err && err.message || "").toLowerCase();
+        if (/invalid|unauthorized|access code|not found|permission|denied/.test(msg)) {
+            LOAuth.logout(LOAuth.loginHref((location.hash || "").replace(/^#/, "")));
+            return;
+        }
         testHistory = [];
         toast(err.message || "Could not load tasks from server.");
     }
@@ -65,8 +70,10 @@ function switchPage(id) {
     if (navBtn) navBtn.classList.add("active");
     const nextHash = "#" + id;
     if (location.hash !== nextHash) {
-        history.replaceState(null, "", nextHash);
+        // Keep pathname+search so GH Pages / nested paths survive refresh.
+        history.replaceState(null, "", location.pathname + location.search + nextHash);
     }
+    if (window.LOAuth && typeof LOAuth.rememberPage === "function") LOAuth.rememberPage(id);
     if (id === "dashboard" && typeof renderDashboard === "function") renderDashboard();
     if (id === "test") {
         updateUrl();
@@ -1837,13 +1844,31 @@ function wireTeamUi(session) {
 // Init
 // ═══════════════════════════════════════════
 document.addEventListener("DOMContentLoaded", async () => {
-    const session = LOAuth.requireSession("./index.html");
+    if (!window.LOAuth || !window.LOApi || !window.LOSupabase) {
+        console.error("Core scripts failed to load.");
+        document.body.innerHTML =
+            '<main style="font-family:system-ui;padding:40px;max-width:520px;margin:auto;">' +
+            "<h1>App failed to load</h1>" +
+            "<p>Scripts did not load. Hard-refresh (Ctrl+F5) or reopen the app from the login page.</p>" +
+            '<p><a href="./index.html">Back to sign in</a></p></main>';
+        return;
+    }
+
+    let session = LOAuth.requireSession();
     if (!session) return;
+
+    try {
+        session = (await LOAuth.refreshSession()) || session;
+    } catch (err) {
+        console.error(err);
+        LOAuth.logout(LOAuth.loginHref((location.hash || "").replace(/^#/, "")));
+        return;
+    }
 
     const nameEl = document.getElementById("userChipName");
     if (nameEl) nameEl.textContent = session.username;
     const logoutBtn = document.getElementById("logoutBtn");
-    if (logoutBtn) logoutBtn.onclick = () => LOAuth.logout("./index.html");
+    if (logoutBtn) logoutBtn.onclick = () => LOAuth.logout();
     const dashSub = document.getElementById("dashSubtitle");
     if (dashSub) {
         dashSub.textContent = LOAuth.isTeamLeader(session)
@@ -1855,7 +1880,6 @@ document.addEventListener("DOMContentLoaded", async () => {
     await loadTasksFromServer();
     applyDark();
     updateFilterOptions();
-    if (document.getElementById("historyTbody")) renderDashboard();
     updateScenariosBadge();
     updateUrl();
     loadNoteForConfig();
@@ -1865,31 +1889,41 @@ document.addEventListener("DOMContentLoaded", async () => {
         btn.addEventListener("click", () => switchPage(btn.dataset.page))
     );
 
-    const hash = (location.hash || "").replace("#", "");
-    if (hash === "scenarios" || hash === "test" || hash === "dashboard") {
-        switchPage(hash);
-    } else {
-        switchPage("dashboard");
-    }
+    const hash = (location.hash || "").replace(/^#/, "");
+    const startPage =
+        hash === "scenarios" || hash === "test" || hash === "dashboard"
+            ? hash
+            : LOAuth.lastPage() || "dashboard";
+    switchPage(startPage);
 
     window.addEventListener("hashchange", () => {
-        const h = (location.hash || "").replace("#", "");
+        const h = (location.hash || "").replace(/^#/, "");
         if (h === "scenarios" || h === "test" || h === "dashboard") switchPage(h);
     });
 
-    document.getElementById("fireBtn").onclick = fireResult;
-    document.getElementById("copyUrlBtn").onclick = () => {
-        navigator.clipboard.writeText(document.getElementById("generatedUrl").textContent).then(() => toast("URL copied!"));
-    };
-    document.getElementById("subjectName").onchange = () => { updateUrl(); loadNoteForConfig(); };
-    document.getElementById("restOfLink").oninput  = () => { updateUrl(); loadNoteForConfig(); autoDetectSubject(); };
+    const fireBtn = document.getElementById("fireBtn");
+    if (fireBtn) fireBtn.onclick = fireResult;
+    const copyUrlBtn = document.getElementById("copyUrlBtn");
+    if (copyUrlBtn) {
+        copyUrlBtn.onclick = () => {
+            navigator.clipboard.writeText(document.getElementById("generatedUrl").textContent).then(() => toast("URL copied!"));
+        };
+    }
+    const subjectName = document.getElementById("subjectName");
+    if (subjectName) subjectName.onchange = () => { updateUrl(); loadNoteForConfig(); };
+    const restOfLink = document.getElementById("restOfLink");
+    if (restOfLink) restOfLink.oninput = () => { updateUrl(); loadNoteForConfig(); autoDetectSubject(); };
 
-    document.getElementById("clearResultBtn").onclick = () => { clearResultPanelToEmpty(); };
-    document.getElementById("toggleResultViewBtn").onclick = () => {
-        const card = postMessageCardEl();
-        if (card) card.classList.toggle("show-raw");
-        syncToggleResultViewBtn();
-    };
+    const clearResultBtn = document.getElementById("clearResultBtn");
+    if (clearResultBtn) clearResultBtn.onclick = () => { clearResultPanelToEmpty(); };
+    const toggleResultViewBtn = document.getElementById("toggleResultViewBtn");
+    if (toggleResultViewBtn) {
+        toggleResultViewBtn.onclick = () => {
+            const card = postMessageCardEl();
+            if (card) card.classList.toggle("show-raw");
+            syncToggleResultViewBtn();
+        };
+    }
     const viewFullBtn = document.getElementById("viewFullMsgBtn");
     if (viewFullBtn) {
         viewFullBtn.onclick = () => {
@@ -1908,13 +1942,20 @@ document.addEventListener("DOMContentLoaded", async () => {
     const copyNoteToLastTestBtn = document.getElementById("copyNoteToLastTestBtn");
     if (copyNoteToLastTestBtn) copyNoteToLastTestBtn.onclick = copyNoteToLastTest;
 
-    document.getElementById("startRecBtn2").onclick = startRecording;
-    document.getElementById("stopRecBtn2").onclick = stopRecording;
-    document.getElementById("addStepBtn").onclick = () => addRecorderStep();
-    document.getElementById("stepDescInput").addEventListener("keydown", e => {
-        if (e.key === "Enter") addRecorderStep();
-    });
-    document.getElementById("saveScenarioBtn2").onclick = saveScenario;
+    const startRecBtn2 = document.getElementById("startRecBtn2");
+    if (startRecBtn2) startRecBtn2.onclick = startRecording;
+    const stopRecBtn2 = document.getElementById("stopRecBtn2");
+    if (stopRecBtn2) stopRecBtn2.onclick = stopRecording;
+    const addStepBtn = document.getElementById("addStepBtn");
+    if (addStepBtn) addStepBtn.onclick = () => addRecorderStep();
+    const stepDescInput = document.getElementById("stepDescInput");
+    if (stepDescInput) {
+        stepDescInput.addEventListener("keydown", e => {
+            if (e.key === "Enter") addRecorderStep();
+        });
+    }
+    const saveScenarioBtn2 = document.getElementById("saveScenarioBtn2");
+    if (saveScenarioBtn2) saveScenarioBtn2.onclick = saveScenario;
 
     const filterUser = document.getElementById("filterUser");
     if (filterUser) {
@@ -1928,10 +1969,13 @@ document.addEventListener("DOMContentLoaded", async () => {
             currentFilterUser    = "ALL";
             currentFilterSubject = "ALL";
             currentFilterStatus  = "ALL";
+            currentFilterRetest  = "ALL";
             currentSearchText    = "";
             document.getElementById("filterUser").value    = "ALL";
             document.getElementById("filterSubject").value = "ALL";
             document.getElementById("filterStatus").value  = "ALL";
+            const filterRetestClear = document.getElementById("filterRetest");
+            if (filterRetestClear) filterRetestClear.value = "ALL";
             document.getElementById("filterSearch").value  = "";
             renderDashboard();
         };
@@ -1949,14 +1993,17 @@ document.addEventListener("DOMContentLoaded", async () => {
             ".json,.csv,application/json,text/csv"
         );
         exportCsvBtn.onclick = exportCsv;
-        document.getElementById("exportJsonBtn").onclick = exportJson;
+        const exportJsonBtn = document.getElementById("exportJsonBtn");
+        if (exportJsonBtn) exportJsonBtn.onclick = exportJson;
         const saveLocalBackupBtn = document.getElementById("saveLocalBackupBtn");
         if (saveLocalBackupBtn) saveLocalBackupBtn.onclick = exportJson;
         const uploadJsonBtn = document.getElementById("uploadJsonBtn");
         if (uploadJsonBtn) uploadJsonBtn.onclick = () => fileInput.click();
     }
-    document.getElementById("exportScenariosBtn").onclick = exportScenarios;
-    document.getElementById("importScenariosBtn").onclick = () => scenFileInput.click();
+    const exportScenariosBtn = document.getElementById("exportScenariosBtn");
+    if (exportScenariosBtn) exportScenariosBtn.onclick = exportScenarios;
+    const importScenariosBtn = document.getElementById("importScenariosBtn");
+    if (importScenariosBtn) importScenariosBtn.onclick = () => scenFileInput.click();
 
     syncToggleResultViewBtn();
 

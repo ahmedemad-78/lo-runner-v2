@@ -412,7 +412,7 @@
   <script>
     (function () {
       if (LOAuth.getSession()) {
-        location.replace("./app.html");
+        LOAuth.goToApp();
         return;
       }
       const form = document.getElementById("loginForm");
@@ -442,7 +442,7 @@
         btn.disabled = true;
         try {
           await LOAuth.loginWithAccessCode(code);
-          location.replace("./app.html");
+          LOAuth.goToApp();
         } catch (err) {
           showError(err.message || "Invalid access code.");
           btn.disabled = false;
